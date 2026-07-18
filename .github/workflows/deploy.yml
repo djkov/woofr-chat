@@ -36,7 +36,7 @@ jobs:
       - name: Smoke test staging
         run: |
           for i in {1..10}; do
-            if curl -sf http://127.0.0.1:8091/; then exit 0; fi
+            if curl -sf http://127.0.0.1:8091/messenger/alpha; then exit 0; fi
             sleep 2
           done
           echo "Staging smoke test failed" >&2
