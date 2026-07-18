@@ -2,10 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>woofr.chat</title>
 <script src="https://cdn.jsdelivr.net/npm/strophe.js@1.6.2/dist/strophe.umd.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { height: 100%; }
 
   body {
     background: #008080;
@@ -13,6 +16,7 @@
     font-size: 11px;
     color: #000;
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
   }
 
@@ -21,6 +25,7 @@
     background: #c0c0c0;
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -107,6 +112,7 @@
   /* ── Login panel (centered dialog) ── */
   #login-panel {
     flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -136,6 +142,7 @@
 
   input[type=text], input[type=password] {
     flex: 1;
+    min-width: 0;
     border: 1px solid;
     border-color: #808080 #dfdfdf #dfdfdf #808080;
     background: #fff;
@@ -392,6 +399,7 @@
     padding: 6px;
     margin: 4px 0;
     position: relative;
+    min-width: 0;
   }
   .groupbox legend { font-size: 10px; padding: 0 3px; color: #444; }
 
@@ -492,6 +500,75 @@
     color: #cc0000;
   }
   .priority-send-btn:active { border-color: #808080 #dfdfdf #dfdfdf #808080; padding: 4px 7px 2px 9px; }
+
+  /* ── Mobile back button (hidden on desktop) ── */
+  .mobile-back-btn {
+    display: none;
+    border: 2px solid;
+    border-color: #dfdfdf #808080 #808080 #dfdfdf;
+    background: #c0c0c0;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: inherit;
+    font-weight: bold;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .mobile-back-btn:active { border-color: #808080 #dfdfdf #dfdfdf #808080; }
+
+  /* ── Mobile layout ── */
+  @media (max-width: 768px) {
+    body { font-size: 13px; }
+
+    .title-bar { padding: 6px 8px; }
+    .menubar { display: none; } /* decorative Win98 menu, not functional — just eats space on small screens */
+
+    #login-card { width: 100%; max-width: 340px; min-width: 0; padding: 0 12px; }
+
+    .form-row { flex-wrap: wrap; }
+    .form-row label { width: auto; text-align: left; }
+
+    input[type=text], input[type=password], textarea.chat-input {
+      font-size: 16px; /* prevent iOS auto-zoom on focus */
+    }
+
+    .btn, .btn.primary { padding: 8px 14px; }
+
+    #app-layout { position: relative; overflow: hidden; }
+
+    #buddy-panel {
+      width: 100%;
+      min-width: 0;
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      border-right: none;
+    }
+
+    #chat-area {
+      position: absolute;
+      inset: 0;
+      display: none;
+    }
+
+    #app-layout.mobile-chat-open #buddy-panel { display: none; }
+    #app-layout.mobile-chat-open #chat-area { display: flex; }
+
+    .mobile-back-btn { display: flex; align-items: center; justify-content: center; }
+
+    #buddy-list li { padding: 10px 10px; min-height: 24px; }
+    .add-buddy-row { padding: 8px; }
+    .add-buddy-row input, .add-buddy-row button { font-size: 16px; padding: 8px; }
+
+    .chat-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .chat-tab { padding: 8px 12px; font-size: 13px; }
+
+    .chat-toolbar button { padding: 6px 10px; }
+    .nudge-btn, .priority-send-btn { padding: 6px 10px; font-size: 12px; }
+
+    textarea.chat-input { height: 60px; }
+    .send-col .btn { padding: 10px 14px; }
+  }
 </style>
 </head>
 <body>
@@ -577,6 +654,7 @@
 
       <!-- RIGHT: chat area -->
       <div id="chat-area">
+        <button class="mobile-back-btn" id="mobile-back-btn" onclick="showBuddyPanelMobile()">&larr; Buddies</button>
         <div class="chat-tabs" id="chat-tabs" style="display:none"></div>
         <div id="chat-windows"></div>
         <div id="chat-placeholder">Select a buddy to start chatting</div>
@@ -788,10 +866,19 @@ function onMessage(msg) {
   return true;
 }
 
+function isMobileLayout() {
+  return window.matchMedia('(max-width: 768px)').matches;
+}
+
+function showBuddyPanelMobile() {
+  document.getElementById('app-layout').classList.remove('mobile-chat-open');
+}
+
 function openChat(jid) {
   if (!chatWindows[jid]) createChatWindow(jid);
   switchTab(jid);
-  setTimeout(() => document.querySelector('#chat-win-' + cssId(jid) + ' textarea')?.focus(), 50);
+  if (isMobileLayout()) document.getElementById('app-layout').classList.add('mobile-chat-open');
+  setTimeout(() => document.querySelector('#chat-win-' + cssId(jid) + ' textarea')?.focus(), isMobileLayout() ? 300 : 50);
 }
 
 function createChatWindow(jid) {
@@ -864,6 +951,7 @@ function closeChat(jid, e) {
     } else {
       document.getElementById('chat-tabs').style.display = 'none';
       document.getElementById('chat-placeholder').style.display = '';
+      document.getElementById('app-layout').classList.remove('mobile-chat-open');
     }
   }
 }
