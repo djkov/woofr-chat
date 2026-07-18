@@ -720,6 +720,7 @@ function doCancel() {
 }
 
 function doSignOut() {
+  if (!confirm('Are you sure you want to sign out?')) return;
   stopAlertLoop();
   if (conn) { conn.disconnect(); conn = null; }
   showLogin();
