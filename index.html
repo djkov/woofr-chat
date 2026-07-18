@@ -55,6 +55,20 @@
   }
   .title-btn:active { border-color: #808080 #dfdfdf #dfdfdf #808080; }
 
+  .alpha-badge {
+    background: #ff6600;
+    color: #fff;
+    font-size: 9px;
+    font-weight: bold;
+    padding: 1px 4px;
+    border: 1px solid #803300;
+    border-radius: 2px;
+    letter-spacing: 0.5px;
+    margin-left: 6px;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
   /* ── Menu bar ── */
   .menubar {
     background: #c0c0c0;
@@ -485,7 +499,7 @@
 <div class="window" id="main-window">
 
   <div class="title-bar">
-    <span>&#128172; woofr.chat</span>
+    <span>&#128172; woofr.chat <span class="alpha-badge" title="This is an early alpha build and may be unstable">ALPHA</span></span>
     <div class="title-bar-buttons">
       <button class="title-btn">_</button>
       <button class="title-btn">&#9633;</button>
@@ -505,7 +519,7 @@
     <!-- LOGIN -->
     <div id="login-panel">
       <div id="login-card">
-        <div class="login-logo">woofr<span>.chat</span></div>
+        <div class="login-logo">woofr<span>.chat</span> <span class="alpha-badge" title="This is an early alpha build and may be unstable">ALPHA</span></div>
 
         <fieldset class="groupbox">
           <legend>Sign In</legend>
