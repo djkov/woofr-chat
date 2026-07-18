@@ -8,7 +8,17 @@ services:
       - ALL
     tmpfs:
       - /tmp
-    # Bound to localhost only — the TLS-terminating reverse proxy in front
-    # is the only thing that should reach this (see README).
+    # Bound to localhost only — lets CI curl it directly for health checks.
+    # NPM doesn't use this port; it reaches the container by name over
+    # npm_network instead (see naas's docker-compose.yml for the pattern).
     ports:
       - "127.0.0.1:8090:8080"
+    networks:
+      - default
+      - npm_network
+
+networks:
+  # Nginx Proxy Manager's network — it's a separate stack, so it must
+  # already exist on the host (created by NPM's own compose file).
+  npm_network:
+    external: true
