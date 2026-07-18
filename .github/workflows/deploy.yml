@@ -1,0 +1,53 @@
+name: Build & Stage
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: self-hosted
+    outputs:
+      image_tag: ${{ steps.tag.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine image tag
+        id: tag
+        run: echo "image_tag=${GITHUB_REF_NAME}-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        run: docker compose build
+
+  deploy-staging:
+    needs: build
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start staging stack on an alternate port
+        run: |
+          docker compose -p woofr-staging -f docker-compose.yml -f docker-compose.staging.yml up -d --build
+
+      - name: Smoke test staging
+        run: |
+          for i in {1..10}; do
+            if curl -sf http://127.0.0.1:8091/messenger/alpha; then exit 0; fi
+            sleep 2
+          done
+          echo "Staging smoke test failed" >&2
+          exit 1
+
+      - name: Tear down staging stack
+        if: always()
+        run: docker compose -p woofr-staging -f docker-compose.yml -f docker-compose.staging.yml down
+
+  # Production is a *separate* workflow (deploy-production.yml) that only
+  # runs via manual workflow_dispatch. GitHub's environment "required
+  # reviewers" protection isn't available on private personal-account repos,
+  # so the manual trigger itself is the approval gate: nothing reaches
+  # production automatically, no matter what happens here.

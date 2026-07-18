@@ -1,0 +1,9 @@
+# Override used by the `deploy-staging` CI job to smoke-test a build on an
+# alternate port before it's allowed anywhere near production. Not intended
+# to run standalone — always combined with docker-compose.yml:
+#   docker compose -p woofr-staging -f docker-compose.yml -f docker-compose.staging.yml up -d --build
+services:
+  woofr-client:
+    container_name: woofr-client-staging
+    ports: !override
+      - "127.0.0.1:8091:8080"

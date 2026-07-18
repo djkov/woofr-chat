@@ -1,0 +1,14 @@
+services:
+  woofr-client:
+    build: .
+    container_name: woofr-client
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    # Bound to localhost only — the TLS-terminating reverse proxy in front
+    # is the only thing that should reach this (see README).
+    ports:
+      - "127.0.0.1:8090:8080"

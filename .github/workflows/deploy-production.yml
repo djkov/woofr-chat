@@ -1,0 +1,33 @@
+name: Deploy Production
+
+# Manual only: nothing reaches production without someone deliberately
+# triggering this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or tag to deploy, e.g. main or v1.0.0"
+        required: true
+        default: "main"
+        type: string
+
+jobs:
+  deploy-production:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout requested ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Deploy
+        run: docker compose up -d --build
+
+      - name: Verify production health
+        run: |
+          for i in {1..10}; do
+            if curl -sf http://127.0.0.1:8090/messenger/alpha; then exit 0; fi
+            sleep 2
+          done
+          echo "Production health check failed after deploy" >&2
+          exit 1

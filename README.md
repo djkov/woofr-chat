@@ -33,7 +33,7 @@ docker run -d \
   --read-only \
   --cap-drop ALL \
   --tmpfs /tmp \
-  -p 127.0.0.1:8080:8080 \
+  -p 127.0.0.1:8090:8080 \
   woofr-client
 ```
 
@@ -42,13 +42,13 @@ docker run -d \
 - `--cap-drop ALL` — drops all Linux capabilities.
 - `--tmpfs /tmp` — nginx writes its temp files to an in-memory mount; nothing persists to disk.
 
-**TLS is required.** Point your reverse proxy (Traefik, nginx, Caddy, cloud LB) at port 8080 and terminate HTTPS there. The container will not serve traffic directly on a public port.
+**TLS is required.** Point your reverse proxy (Traefik, nginx, Caddy, cloud LB) at host port 8090 (container listens on 8080 internally) and terminate HTTPS there. The container will not serve traffic directly on a public port.
 
 Example Caddy config:
 
 ```
 woofr.chat {
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:8090
 }
 ```
 
