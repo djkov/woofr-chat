@@ -44,6 +44,8 @@ docker run -d \
 
 **TLS is required.** Point your reverse proxy (Traefik, nginx, Caddy, cloud LB) at host port 8090 (container listens on 8080 internally) and terminate HTTPS there. The container will not serve traffic directly on a public port.
 
+On the woofr.chat VPS, `docker compose up` (see `docker-compose.yml`) joins the container to **Traefik**'s shared `proxy` network. Its labels route `woofr.chat` to port 8080, and Traefik terminates TLS (configured in the `djkov/infra` repo). The app lives under `/messenger/<name>`, e.g. `/messenger/alpha`, and `/` returns 404 by design. Until the Traefik cutover, Nginx Proxy Manager also reaches the container over `npm_network`. The staging override sets `traefik.enable=false`, so a smoke-test stack never gets production traffic.
+
 Example Caddy config:
 
 ```
