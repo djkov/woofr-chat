@@ -4,7 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>woofr.chat</title>
-<script src="https://cdn.jsdelivr.net/npm/strophe.js@1.6.2/dist/strophe.umd.js"></script>
+<!-- Vendored (see vendor/), not loaded from a CDN: no third party in the load
+     path, and the CSP can stay at script-src 'self'. -->
+<script src="vendor/strophe.umd.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -109,8 +111,8 @@
   #status-bar.error { color: #cc0000; font-weight: bold; }
   #status-bar.ok    { color: #006600; font-weight: bold; }
 
-  /* ── Login panel (centered dialog) ── */
-  #login-panel {
+  /* ── Login / lock panels (centered dialog) ── */
+  #login-panel, #lock-panel {
     flex: 1;
     min-width: 0;
     display: flex;
@@ -119,7 +121,7 @@
     background: #c0c0c0;
   }
 
-  #login-card {
+  #login-card, #lock-card {
     width: 340px;
     display: flex;
     flex-direction: column;
@@ -136,6 +138,17 @@
     letter-spacing: -1px;
   }
   .login-logo span { color: #ff6600; }
+
+  .login-warning {
+    background: #fff0f0;
+    border: 2px solid #cc0000;
+    color: #cc0000;
+    font-weight: bold;
+    padding: 3px 6px;
+    text-align: center;
+  }
+
+  .lock-error { color: #cc0000; font-weight: bold; min-height: 1.2em; }
 
   .form-row { display: flex; align-items: center; gap: 6px; }
   .form-row label { width: 90px; text-align: right; font-size: 11px; }
@@ -365,7 +378,7 @@
   }
   .chat-toolbar button:hover { border-color: #808080; background: #c0c0c0; }
 
-  #chat-input-row { display: flex; gap: 4px; }
+  .chat-input-row { display: flex; gap: 4px; }
 
   textarea.chat-input {
     flex: 1;
@@ -523,7 +536,7 @@
     .title-bar { padding: 6px 8px; }
     .menubar { display: none; } /* decorative Win98 menu, not functional — just eats space on small screens */
 
-    #login-card { width: 100%; max-width: 340px; min-width: 0; padding: 0 12px; }
+    #login-card, #lock-card { width: 100%; max-width: 340px; min-width: 0; padding: 0 12px; }
 
     .form-row { flex-wrap: wrap; }
     .form-row label { width: auto; text-align: left; }
@@ -603,19 +616,50 @@
           <div style="display:flex;flex-direction:column;gap:5px;margin-top:4px;">
             <div class="form-row">
               <label for="inp-jid">Screen Name:</label>
-              <input type="text" id="inp-jid" placeholder="user@woofr.chat" />
+              <input type="text" id="inp-jid" placeholder="user@woofr.chat" autocomplete="username" spellcheck="false" />
             </div>
             <div class="form-row">
               <label for="inp-pass">Password:</label>
-              <input type="password" id="inp-pass" placeholder="••••••••" />
+              <input type="password" id="inp-pass" placeholder="••••••••" autocomplete="current-password" />
             </div>
             <input type="hidden" id="inp-bosh" value="https://woofr.chat:5443/bosh" />
           </div>
         </fieldset>
 
+        <div class="login-warning" id="insecure-warning" style="display:none">
+          &#9888; This page wasn't loaded over HTTPS, so sign-in is disabled.
+        </div>
+
         <div style="display:flex;justify-content:flex-end;gap:6px;padding:0 2px;">
-          <button class="btn primary" id="btn-login" onclick="doLogin()">Sign In</button>
-          <button class="btn" onclick="doCancel()">Cancel</button>
+          <button class="btn primary" id="btn-login">Sign In</button>
+          <button class="btn" id="btn-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOCK (after inactivity). The app layout is hidden, not removed, so the
+         session picks up where it left off once unlocked. -->
+    <div id="lock-panel" style="display:none">
+      <div id="lock-card">
+        <fieldset class="groupbox">
+          <legend>Session Locked</legend>
+          <div style="display:flex;flex-direction:column;gap:5px;margin-top:4px;">
+            <div id="lock-msg"></div>
+            <div class="form-row">
+              <label>Screen Name:</label>
+              <b id="lock-jid"></b>
+            </div>
+            <div class="form-row">
+              <label for="inp-unlock-pass">Password:</label>
+              <input type="password" id="inp-unlock-pass" autocomplete="current-password" />
+            </div>
+            <div class="lock-error" id="lock-error"></div>
+          </div>
+        </fieldset>
+
+        <div style="display:flex;justify-content:flex-end;gap:6px;padding:0 2px;">
+          <button class="btn primary" id="btn-unlock">Unlock</button>
+          <button class="btn" id="btn-lock-sign-out">Sign Out</button>
         </div>
       </div>
     </div>
@@ -641,20 +685,20 @@
         </ul>
 
         <div class="add-buddy-row">
-          <input type="text" id="inp-add-buddy" placeholder="Add buddy (jid@server)" />
-          <button class="btn" onclick="addBuddy()">Add</button>
+          <input type="text" id="inp-add-buddy" placeholder="Add buddy (jid@server)" spellcheck="false" />
+          <button class="btn" id="btn-add-buddy">Add</button>
         </div>
 
         <hr class="separator">
 
         <div style="display:flex;justify-content:flex-end;gap:4px;padding:4px 4px;">
-          <button class="btn" onclick="doSignOut()">Sign Out</button>
+          <button class="btn" id="btn-sign-out">Sign Out</button>
         </div>
       </div>
 
       <!-- RIGHT: chat area -->
       <div id="chat-area">
-        <button class="mobile-back-btn" id="mobile-back-btn" onclick="showBuddyPanelMobile()">&larr; Buddies</button>
+        <button class="mobile-back-btn" id="mobile-back-btn">&larr; Buddies</button>
         <div class="chat-tabs" id="chat-tabs" style="display:none"></div>
         <div id="chat-windows"></div>
         <div id="chat-placeholder">Select a buddy to start chatting</div>
@@ -669,522 +713,6 @@
 
 </div><!-- /window -->
 
-<script>
-// ── State ──────────────────────────────────────────────────────────────────
-let conn = null;
-let myJid = '';
-let buddies = {}; // jid -> { name, show }
-let chatWindows = {}; // jid -> { tab: el, win: el }
-let activeChat = null;
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-function now() {
-  const d = new Date();
-  return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-}
-
-function bareJid(jid) {
-  return jid ? jid.split('/')[0].toLowerCase() : '';
-}
-
-function setStatus(msg, type) {
-  const el = document.getElementById('status-bar');
-  el.textContent = msg;
-  el.className = type || '';
-}
-
-// ── Login ──────────────────────────────────────────────────────────────────
-function doLogin() {
-  const jid  = document.getElementById('inp-jid').value.trim();
-  const pass = document.getElementById('inp-pass').value;
-  const bosh = document.getElementById('inp-bosh').value.trim();
-
-  if (!jid || !pass || !bosh) { setStatus('Please fill in all fields.', 'error'); return; }
-
-  setStatus('Connecting…');
-  document.getElementById('btn-login').disabled = true;
-
-  conn = new Strophe.Connection(bosh);
-  // Strophe's SCRAM-SHA-512 implementation is broken in this build;
-  // strip everything except PLAIN so auth succeeds.
-  Object.keys(conn.mechanisms).forEach(k => {
-    if (k !== 'PLAIN') delete conn.mechanisms[k];
-  });
-  conn.connect(jid, pass, onConnectStatus);
-}
-
-function doCancel() {
-  document.getElementById('inp-pass').value = '';
-  setStatus('Not connected.');
-  if (conn) { conn.disconnect(); conn = null; }
-}
-
-function doSignOut() {
-  if (!confirm('Are you sure you want to sign out?')) return;
-  stopAlertLoop();
-  if (conn) { conn.disconnect(); conn = null; }
-  showLogin();
-}
-
-function onConnectStatus(status) {
-  const S = Strophe.Status;
-  const names = {
-    [S.CONNECTING]:    ['Connecting…',           ''],
-    [S.AUTHENTICATING]:['Authenticating…',        ''],
-    [S.AUTHFAIL]:      ['Authentication failed.', 'error'],
-    [S.CONNFAIL]:      ['Connection failed.',     'error'],
-    [S.DISCONNECTING]: ['Disconnecting…',         ''],
-    [S.DISCONNECTED]:  ['Disconnected.',          ''],
-    [S.CONNECTED]:     ['Connected!',             'ok'],
-    [S.ERROR]:         ['An error occurred.',     'error'],
-  };
-  const [msg, cls] = names[status] || ['Unknown status.', ''];
-  setStatus(msg, cls);
-
-  if (status === S.CONNECTED) {
-    onConnected();
-  } else if ([S.DISCONNECTED, S.AUTHFAIL, S.CONNFAIL, S.ERROR].includes(status)) {
-    document.getElementById('btn-login').disabled = false;
-  }
-}
-
-function requestNotifPermission() {
-  if ('Notification' in window && Notification.permission === 'default') {
-    Notification.requestPermission();
-  }
-}
-
-function notify(title, body, { persist = false } = {}) {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  const n = new Notification(title, { body, silent: true, requireInteraction: persist });
-  if (!persist) setTimeout(() => n.close(), 6000);
-}
-
-function onConnected() {
-  myJid = bareJid(conn.jid);
-  document.getElementById('my-jid-display').textContent = myJid;
-  requestNotifPermission();
-
-  conn.addHandler(onMessage,   null, 'message', 'chat');
-  conn.addHandler(onPresence,  null, 'presence');
-  conn.addHandler(onAttention, 'urn:xmpp:attention:0', 'message');
-
-  conn.send($pres().tree());
-  conn.sendIQ(
-    $iq({type: 'get'}).c('query', {xmlns: Strophe.NS.ROSTER}),
-    onRoster
-  );
-
-  showBuddyList();
-}
-
-// ── Roster ─────────────────────────────────────────────────────────────────
-function onRoster(iq) {
-  iq.querySelectorAll('item').forEach(item => {
-    const jid  = item.getAttribute('jid');
-    const name = item.getAttribute('name') || jid;
-    if (!buddies[bareJid(jid)]) buddies[bareJid(jid)] = { name, show: 'offline' };
-  });
-  renderBuddyList();
-}
-
-function addBuddy() {
-  const jid = document.getElementById('inp-add-buddy').value.trim();
-  if (!jid || !conn) return;
-  const bare = bareJid(jid);
-  buddies[bare] = buddies[bare] || { name: bare, show: 'offline' };
-  conn.send($pres({to: jid, type: 'subscribe'}));
-  document.getElementById('inp-add-buddy').value = '';
-  renderBuddyList();
-}
-
-// ── Presence ───────────────────────────────────────────────────────────────
-function onPresence(pres) {
-  const from = bareJid(pres.getAttribute('from'));
-  const type  = pres.getAttribute('type') || 'available';
-  const showEl = pres.querySelector('show');
-  const show  = showEl ? showEl.textContent : (type === 'available' ? 'online' : 'offline');
-
-  if (from === myJid) return true;
-
-  if (!buddies[from]) buddies[from] = { name: from, show: 'offline' };
-  buddies[from].show = (type === 'unavailable') ? 'offline' : show;
-
-  renderBuddyList();
-  return true;
-}
-
-function renderBuddyList() {
-  const ul     = document.getElementById('buddy-list');
-  const online  = Object.entries(buddies).filter(([,b]) => b.show !== 'offline');
-  const offline = Object.entries(buddies).filter(([,b]) => b.show === 'offline');
-
-  document.getElementById('buddy-count').textContent = online.length + ' online';
-  ul.innerHTML = '';
-
-  if (online.length) {
-    const gh = document.createElement('li');
-    gh.className = 'group-header';
-    gh.textContent = '▼ Online (' + online.length + ')';
-    ul.appendChild(gh);
-    online.forEach(([jid, b]) => ul.appendChild(makeBuddyLi(jid, b)));
-  }
-  if (offline.length) {
-    const gh = document.createElement('li');
-    gh.className = 'group-header';
-    gh.textContent = '▼ Offline (' + offline.length + ')';
-    ul.appendChild(gh);
-    offline.forEach(([jid, b]) => ul.appendChild(makeBuddyLi(jid, b)));
-  }
-}
-
-function makeBuddyLi(jid, b) {
-  const li  = document.createElement('li');
-  const dot = document.createElement('div');
-  dot.className = 'status-dot' + (b.show === 'offline' ? ' offline' : b.show === 'away' ? ' away' : '');
-  const name = document.createElement('span');
-  name.textContent = b.name || jid;
-  li.appendChild(dot);
-  li.appendChild(name);
-  li.title   = jid;
-  li.onclick = () => openChat(jid);
-  return li;
-}
-
-// ── Messages ───────────────────────────────────────────────────────────────
-function hasAttention(msg) {
-  return msg.getElementsByTagNameNS('urn:xmpp:attention:0', 'attention').length > 0;
-}
-
-function onMessage(msg) {
-  const from   = msg.getAttribute('from');
-  const bare   = bareJid(from);
-  const bodyEl = msg.querySelector('body');
-  if (!bodyEl) return true;
-  if (hasAttention(msg)) return true; // handled by onAttention
-  if (!chatWindows[bare]) createChatWindow(bare);
-  appendMsg(bare, bare, bodyEl.textContent, 'them');
-  return true;
-}
-
-function isMobileLayout() {
-  return window.matchMedia('(max-width: 768px)').matches;
-}
-
-function showBuddyPanelMobile() {
-  document.getElementById('app-layout').classList.remove('mobile-chat-open');
-}
-
-function openChat(jid) {
-  if (!chatWindows[jid]) createChatWindow(jid);
-  switchTab(jid);
-  if (isMobileLayout()) document.getElementById('app-layout').classList.add('mobile-chat-open');
-  setTimeout(() => document.querySelector('#chat-win-' + cssId(jid) + ' textarea')?.focus(), isMobileLayout() ? 300 : 50);
-}
-
-function createChatWindow(jid) {
-  const id   = cssId(jid);
-  const tabs = document.getElementById('chat-tabs');
-  const wins = document.getElementById('chat-windows');
-
-  const tab = document.createElement('button');
-  tab.className = 'chat-tab';
-  tab.id        = 'tab-' + id;
-  tab.innerHTML = shortName(jid) + '<span class="close-tab" onclick="closeChat(\'' + jid + '\',event)">✕</span>';
-  tab.onclick   = () => switchTab(jid);
-  tabs.appendChild(tab);
-
-  const win = document.createElement('div');
-  win.className = 'chat-window';
-  win.id        = 'chat-win-' + id;
-  win.innerHTML = `
-    <div class="chat-log" id="log-${id}"></div>
-    <div class="chat-input-area">
-      <div class="chat-toolbar">
-        <button onclick="fmtWrap('${id}','**')"><b>B</b></button>
-        <button onclick="fmtWrap('${id}','_')"><i>I</i></button>
-        <button style="font-size:13px;" title="Smiley">:)</button>
-        <span style="flex:1"></span>
-        <button class="nudge-btn" onclick="sendNudge('${jid}')" title="Send Nudge (XEP-0224)">&#128293; Nudge!</button>
-        <button class="priority-send-btn" onclick="sendPriorityMsg('${jid}')" title="Priority Message">&#9888; Priority</button>
-      </div>
-      <div id="chat-input-row">
-        <textarea class="chat-input" id="inp-${id}" placeholder="Send a message to ${jid}…"
-          onkeydown="chatKey(event,'${jid}')"></textarea>
-        <div class="send-col">
-          <button class="btn primary" onclick="sendMsg('${jid}')">Send</button>
-          <button class="btn" onclick="document.getElementById('inp-${id}').value=''">Clear</button>
-        </div>
-      </div>
-    </div>`;
-  wins.appendChild(win);
-
-  chatWindows[jid] = { tab, win };
-  appendMsg(jid, null, 'Conversation with ' + jid + ' started at ' + now(), 'system');
-
-  // Show tabs, hide placeholder on first chat
-  tabs.style.display = '';
-  document.getElementById('chat-placeholder').style.display = 'none';
-
-  switchTab(jid);
-}
-
-function switchTab(jid) {
-  if (activeChat) {
-    chatWindows[activeChat]?.tab.classList.remove('active');
-    chatWindows[activeChat]?.win.classList.remove('active');
-  }
-  activeChat = jid;
-  chatWindows[jid].tab.classList.add('active');
-  chatWindows[jid].win.classList.add('active');
-}
-
-function closeChat(jid, e) {
-  e.stopPropagation();
-  chatWindows[jid].tab.remove();
-  chatWindows[jid].win.remove();
-  delete chatWindows[jid];
-  if (activeChat === jid) {
-    activeChat = null;
-    const remaining = Object.keys(chatWindows);
-    if (remaining.length) {
-      switchTab(remaining[remaining.length - 1]);
-    } else {
-      document.getElementById('chat-tabs').style.display = 'none';
-      document.getElementById('chat-placeholder').style.display = '';
-      document.getElementById('app-layout').classList.remove('mobile-chat-open');
-    }
-  }
-}
-
-function appendMsg(jid, from, text, type) {
-  const id  = cssId(jid);
-  const log = document.getElementById('log-' + id);
-  if (!log) return;
-  const row = document.createElement('div');
-  if (type === 'system') {
-    row.className   = 'msg-system';
-    row.textContent = text;
-  } else if (type === 'nudge') {
-    row.className   = 'msg-nudge';
-    row.textContent = text;
-  } else if (type === 'nudge-error') {
-    row.className   = 'msg-nudge-error';
-    row.textContent = text;
-  } else {
-    row.className = type === 'me' ? 'msg-me' : 'msg-them';
-    const nick = type === 'me' ? myJid : (buddies[from]?.name || from);
-    row.innerHTML =
-      '<span class="msg-time">[' + now() + ']</span> ' +
-      '<span class="nick">' + escHtml(nick) + ':</span> ' +
-      escHtml(text);
-  }
-  log.appendChild(row);
-  log.scrollTop = log.scrollHeight;
-}
-
-function sendMsg(jid) {
-  const id   = cssId(jid);
-  const ta   = document.getElementById('inp-' + id);
-  const text = ta.value.trim();
-  if (!text || !conn) return;
-  conn.send($msg({to: jid, type: 'chat'}).c('body').t(text));
-  appendMsg(jid, myJid, text, 'me');
-  ta.value = '';
-  ta.focus();
-}
-
-function chatKey(e, jid) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMsg(jid);
-  }
-}
-
-// ── Priority Message ──────────────────────────────────────────────────────
-let alertInterval = null;
-
-function sendPriorityMsg(jid) {
-  const id   = cssId(jid);
-  const ta   = document.getElementById('inp-' + id);
-  const text = ta.value.trim();
-  if (!text || !conn) return;
-  conn.send(
-    $msg({to: jid, type: 'chat'})
-      .c('body').t(text).up()
-      .c('attention', {xmlns: 'urn:xmpp:attention:0'})
-  );
-  const log = document.getElementById('log-' + id);
-  const row = document.createElement('div');
-  row.className = 'msg-priority';
-  row.innerHTML =
-    '<div class="priority-header"><span>&#9888; Priority Message (!):</span>' +
-    '<span class="msg-time">[' + now() + '] ' + escHtml(myJid) + '</span></div>' +
-    '<div class="priority-body">' + escHtml(text) + '</div>';
-  log.appendChild(row);
-  log.scrollTop = log.scrollHeight;
-  ta.value = '';
-  ta.focus();
-}
-
-function appendPriorityMsg(jid, fromName, text) {
-  const id  = cssId(jid);
-  const log = document.getElementById('log-' + id);
-  if (!log) return;
-  const msgId = 'pm-' + Date.now();
-  const row   = document.createElement('div');
-  row.className = 'msg-priority';
-  row.id        = msgId;
-  row.innerHTML =
-    '<div class="priority-header"><span>&#9888; Priority Message (!):</span>' +
-    '<span class="msg-time">[' + now() + '] ' + escHtml(fromName) + '</span></div>' +
-    '<div class="priority-body">' + escHtml(text) + '</div>' +
-    '<div class="priority-ack">' +
-    '<button class="priority-ack-btn" onclick="ackPriority(\'' + msgId + '\')">&#10003; Mark as Read</button>' +
-    '</div>';
-  log.appendChild(row);
-  log.scrollTop = log.scrollHeight;
-}
-
-function ackPriority(msgId) {
-  const row = document.getElementById(msgId);
-  if (!row) return;
-  const btn = row.querySelector('.priority-ack-btn');
-  btn.textContent = '✓ Read';
-  btn.disabled    = true;
-  row.style.borderColor = '#888';
-  row.style.background  = '#f5f5f5';
-  if (!document.querySelector('.priority-ack-btn:not(:disabled)')) stopAlertLoop();
-}
-
-function startAlertLoop() {
-  if (alertInterval) return;
-  playAlertBeep();
-  alertInterval = setInterval(playAlertBeep, 1800);
-}
-
-function stopAlertLoop() {
-  if (alertInterval) { clearInterval(alertInterval); alertInterval = null; }
-}
-
-function playAlertBeep() {
-  const ctx     = new (window.AudioContext || window.webkitAudioContext)();
-  const pattern = [900, 1400, 900, 1400, 900, 1400];
-  pattern.forEach((freq, i) => {
-    const osc  = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.1);
-    gain.gain.setValueAtTime(0.7, ctx.currentTime + i * 0.1);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.1 + 0.09);
-    osc.start(ctx.currentTime + i * 0.1);
-    osc.stop(ctx.currentTime  + i * 0.1 + 0.09);
-  });
-}
-
-// ── XEP-0224 Attention ────────────────────────────────────────────────────
-const nudgeTimestamps = {};
-const NUDGE_LIMIT     = 2;
-const NUDGE_WINDOW_MS = 60_000;
-
-function sendNudge(jid) {
-  if (!conn) return;
-  const now_ms = Date.now();
-  const ts = (nudgeTimestamps[jid] || []).filter(t => now_ms - t < NUDGE_WINDOW_MS);
-  if (ts.length >= NUDGE_LIMIT) {
-    const wait = Math.ceil((NUDGE_WINDOW_MS - (now_ms - ts[0])) / 1000);
-    appendMsg(jid, null, '⚠ Nudge limit reached! Please wait ' + wait + 's before sending another nudge.', 'nudge-error');
-    return;
-  }
-  ts.push(now_ms);
-  nudgeTimestamps[jid] = ts;
-  conn.send($msg({to: jid, type: 'chat'}).c('attention', {xmlns: 'urn:xmpp:attention:0'}));
-  appendMsg(jid, null, '*** You sent a nudge to ' + shortName(jid) + ' ***', 'nudge');
-  shakeWindow();
-}
-
-function onAttention(msg) {
-  const from   = bareJid(msg.getAttribute('from'));
-  const bodyEl = msg.querySelector('body');
-  if (!chatWindows[from]) createChatWindow(from);
-  const name = buddies[from]?.name || from;
-  if (bodyEl) {
-    appendPriorityMsg(from, name, bodyEl.textContent);
-    startAlertLoop();
-    notify('⚠ Priority Message from ' + name, bodyEl.textContent, { persist: true });
-  } else {
-    appendMsg(from, null, '*** ' + name + ' sent you a nudge! ***', 'nudge');
-    playNudgeSound();
-    notify('🔔 Nudge from ' + name, name + ' is trying to get your attention!');
-  }
-  shakeWindow();
-  return true;
-}
-
-function playNudgeSound() {
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  [[880, 0.00], [660, 0.12], [440, 0.24]].forEach(([freq, when]) => {
-    const osc  = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, ctx.currentTime + when);
-    gain.gain.setValueAtTime(0.4, ctx.currentTime + when);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + when + 0.3);
-    osc.start(ctx.currentTime + when);
-    osc.stop(ctx.currentTime + when + 0.3);
-  });
-}
-
-function shakeWindow() {
-  const win = document.getElementById('main-window');
-  win.classList.remove('nudging');
-  void win.offsetWidth;
-  win.classList.add('nudging');
-  win.addEventListener('animationend', () => win.classList.remove('nudging'), {once: true});
-}
-
-function fmtWrap(id, ch) {
-  const ta  = document.getElementById('inp-' + id);
-  const s   = ta.selectionStart, end = ta.selectionEnd;
-  const sel = ta.value.slice(s, end);
-  ta.setRangeText(ch + sel + ch, s, end, 'end');
-  ta.focus();
-}
-
-// ── UI helpers ─────────────────────────────────────────────────────────────
-function showBuddyList() {
-  document.getElementById('login-panel').style.display = 'none';
-  document.getElementById('app-layout').style.display  = 'flex';
-}
-
-function showLogin() {
-  document.getElementById('login-panel').style.display = '';
-  document.getElementById('app-layout').style.display  = 'none';
-  document.getElementById('btn-login').disabled = false;
-  // Reset chat area state
-  document.getElementById('chat-tabs').innerHTML    = '';
-  document.getElementById('chat-tabs').style.display = 'none';
-  document.getElementById('chat-windows').innerHTML = '';
-  document.getElementById('chat-placeholder').style.display = '';
-  buddies = {}; chatWindows = {}; activeChat = null;
-  setStatus('Not connected.');
-}
-
-function cssId(jid) {
-  return jid.replace(/[@.]/g, '_');
-}
-
-function shortName(jid) {
-  return (buddies[bareJid(jid)]?.name || jid).split('@')[0];
-}
-
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-</script>
+<script src="app.js"></script>
 </body>
 </html>

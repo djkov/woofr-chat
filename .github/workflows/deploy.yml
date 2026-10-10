@@ -35,12 +35,16 @@ jobs:
 
       - name: Smoke test staging
         run: |
+          base=http://127.0.0.1:8091/messenger/alpha
           for i in {1..10}; do
-            if curl -sf http://127.0.0.1:8091/messenger/alpha; then exit 0; fi
+            curl -sf -o /dev/null "$base/" && break
             sleep 2
           done
-          echo "Staging smoke test failed" >&2
-          exit 1
+          # Check the scripts too: with one missing, the page still serves
+          # but the app is dead.
+          for path in / /app.js /vendor/strophe.umd.min.js; do
+            curl -sf -o /dev/null "$base$path" || { echo "Staging smoke test failed: $path" >&2; exit 1; }
+          done
 
       - name: Tear down staging stack
         if: always()

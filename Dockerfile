@@ -7,10 +7,11 @@ RUN rm /etc/nginx/conf.d/default.conf \
     && rm -rf /usr/share/nginx/html/*
 
 COPY nginx.conf /etc/nginx/conf.d/woofr.conf
-COPY index.html /usr/share/nginx/html/index.html
+COPY index.html app.js /usr/share/nginx/html/
+COPY vendor/strophe.umd.min.js /usr/share/nginx/html/vendor/
 
-RUN chown nginx:nginx /usr/share/nginx/html/index.html \
-    && chmod 444 /usr/share/nginx/html/index.html
+RUN chown -R nginx:nginx /usr/share/nginx/html \
+    && find /usr/share/nginx/html -type f -exec chmod 444 {} +
 
 USER nginx
 

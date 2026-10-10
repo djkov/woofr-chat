@@ -1,6 +1,6 @@
 # woofr.chat
 
-A retro-styled, single-file XMPP web client built with nostalgia for the 2000s (AIM, MSN Messenger, ICQ). No build step, no framework, no dependencies beyond a single CDN script.
+A retro-styled XMPP web client built with nostalgia for the 2000s (AIM, MSN Messenger, ICQ). No build step, no framework, one vendored dependency.
 
 ---
 
@@ -8,8 +8,8 @@ A retro-styled, single-file XMPP web client built with nostalgia for the 2000s (
 
 | Property | Value |
 |---|---|
-| File | `index.html` |
-| Dependencies | [Strophe.js 1.6.2](https://cdn.jsdelivr.net/npm/strophe.js@1.6.2/dist/strophe.umd.js) (CDN) |
+| Files | `index.html` (markup + CSS), `app.js` (all JS), `vendor/strophe.umd.min.js` |
+| Dependencies | [Strophe.js 1.6.2](https://www.npmjs.com/package/strophe.js/v/1.6.2) (vendored — no CDN) |
 | Protocol | XMPP over BOSH (XEP-0124) |
 | BOSH endpoint | `https://woofr.chat:5443/bosh` (hardcoded, not shown to users) |
 | Auth | SASL PLAIN (SCRAM-SHA-512 disabled due to Strophe 1.6.2 bug) |
@@ -60,9 +60,9 @@ The nginx config (`nginx.conf`) enforces:
 
 - `Cache-Control: no-store` — prevents PHI caching in browsers and proxies
 - `Strict-Transport-Security` — locks browsers to HTTPS for 2 years
-- `Content-Security-Policy` with `connect-src` locked to `https://woofr.chat:5443` only
-- `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`
-- All routes except `/` and `/index.html` return 404 — no directory listing, no docs exposed
+- `Content-Security-Policy` with `script-src 'self'` (no inline script, no CDNs) and `connect-src` locked to `https://woofr.chat:5443` only
+- `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy` / `-Resource-Policy: same-origin`
+- Only `/messenger/alpha/` and the two scripts it loads are served (`/messenger/alpha` redirects to add the trailing slash); everything else returns 404 — no directory listing, no docs exposed
 
 See `HIPAA.md` for the full compliance gap analysis and roadmap.
 
@@ -114,6 +114,16 @@ python3 -m http.server 8080
 - Connects via **BOSH** (HTTP long-polling, no WebSocket)
 - **SASL PLAIN** only — SCRAM-SHA-512 stripped at runtime due to a broken implementation in Strophe.js 1.6.2
 - Requests the **roster** (contact list) on connect and subscribes to presence
+
+### Session security
+
+- **HTTPS only** — sign-in is disabled (with a warning) unless the page is a secure context (HTTPS, or `localhost` for development)
+- **Lock after 5 minutes** idle — the app is hidden behind a password prompt; the connection stays up. 5 wrong passwords signs you out
+- **Sign-out after 15 minutes** idle, even if locked
+- **Everything is wiped** on any session end — sign-out, timeout, failed unlock, or a dropped connection
+- The password field is cleared as soon as sign-in starts, and the password isn't kept in memory (unlock checks a PBKDF2 hash)
+
+See `HIPAA.md` for the reasoning.
 
 ### Buddy List
 
@@ -182,10 +192,10 @@ On sign-in the client requests `Notification` permission.
 
 | Event | Behaviour |
 |---|---|
-| Nudge received | Notification auto-dismisses after 6 seconds |
-| Priority Message received | Notification stays until user dismisses it (`requireInteraction: true`) |
+| Nudge received | "Someone sent you a nudge." — auto-dismisses after 6 seconds |
+| Priority Message received | "You have a new priority message." — stays until dismissed (`requireInteraction: true`) |
 
-Both notifications are `silent: true` — the in-app Web Audio handles sound.
+Notifications deliberately never include the sender or message text (they show on lock screens and outlive the session), and are all closed on sign-out. Both are `silent: true` — the in-app Web Audio handles sound.
 
 ---
 
@@ -209,7 +219,7 @@ All sounds are synthesised via the **Web Audio API** — no audio files needed.
 - **No message delivery receipts** — XEP-0184 not implemented.
 - **No typing indicators** — XEP-0085 (Chat State Notifications) not implemented.
 - **No vCard / avatars** — XEP-0054 / XEP-0084 not implemented.
-- **Single file** — CSS, HTML and JS are all inline; would benefit from splitting for maintainability at scale.
+- **CSS is still inline** in `index.html` — it's why the CSP keeps `style-src 'unsafe-inline'`.
 - **No persistence** — roster additions, nudge rate-limit timestamps, and chat logs are all in-memory and lost on reload.
 
 ---
@@ -219,22 +229,28 @@ All sounds are synthesised via the **Web Audio API** — no audio files needed.
 ```
 index.html
 ├── <style>          Inline CSS — Win2000 aesthetic, animations, component styles
-├── <body>           HTML — login panel, buddy list, chat area (all in one window div)
-└── <script>
-    ├── State        conn, myJid, buddies{}, chatWindows{}, activeChat, nudgeTimestamps{}
-    ├── Auth         doLogin / onConnectStatus / onConnected
-    ├── Roster       onRoster / addBuddy / renderBuddyList
-    ├── Presence     onPresence
-    ├── Messaging    onMessage / sendMsg / appendMsg
-    ├── XEP-0224     sendNudge (rate-limited) / onAttention / sendPriorityMsg / appendPriorityMsg
-    ├── Alerts       startAlertLoop / stopAlertLoop / playAlertBeep / playNudgeSound / shakeWindow
-    └── Notifications requestNotifPermission / notify
+└── <body>           HTML — login, lock and app panels, buddy list, chat area (all in one window div)
+
+app.js
+├── State            conn, myJid, buddies{}, chatWindows{}, activeChat, nudgeTimestamps{}
+├── Auth             doLogin / onConnectStatus / onConnected
+├── Roster           onRoster / addBuddy / renderBuddyList
+├── Presence         onPresence
+├── Messaging        onMessage / sendMsg / appendMsg
+├── XEP-0224         sendNudge (rate-limited) / onAttention / sendPriorityMsg / appendPriorityMsg
+├── Alerts           startAlertLoop / stopAlertLoop / playAlertBeep / playNudgeSound / shakeWindow
+├── Notifications    requestNotifPermission / notify / closeNotifications
+├── Inactivity       noteActivity / checkIdle / lockSession / doUnlock
+└── Teardown         endSession — the single exit path; wipes all PHI
+
+vendor/strophe.umd.min.js   Strophe.js 1.6.2 (+ its MIT licence alongside)
 ```
 
 ---
 
 ## Development Notes
 
-- **Strophe.js 1.6.2 UMD build** is used (`strophe.umd.js`) — the ESM `src/strophe.js` fails in non-module `<script>` tags.
+- **Strophe.js 1.6.2 UMD build** is vendored as `vendor/strophe.umd.min.js` — the ESM `src/strophe.js` fails in non-module `<script>` tags. To update it: `npm pack strophe.js@<version>` (npm verifies the tarball's integrity), copy `package/dist/strophe.umd.min.js` and `package/LICENSE.txt` into `vendor/`.
+- **No inline JS, ever.** The CSP is `script-src 'self'`, so inline `<script>` blocks and `onclick=""` attributes are blocked. Attach handlers from `app.js`, and build DOM with `textContent` — never put JIDs, roster names or message text into `innerHTML`.
 - SCRAM-SHA-512 is deleted from `conn.mechanisms` before `connect()` — the Strophe implementation sends a literal base64(`"false"`) as the client-final message, which fails auth on every server.
 - Incoming attention stanzas are detected with `getElementsByTagNameNS('urn:xmpp:attention:0', 'attention')` rather than `querySelector` — namespace-aware queries are required for XML stanzas and `querySelector` attribute matching is unreliable across browsers on XML documents.

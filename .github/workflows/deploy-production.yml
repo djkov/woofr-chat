@@ -25,9 +25,13 @@ jobs:
 
       - name: Verify production health
         run: |
+          base=http://127.0.0.1:8090/messenger/alpha
           for i in {1..10}; do
-            if curl -sf http://127.0.0.1:8090/messenger/alpha; then exit 0; fi
+            curl -sf -o /dev/null "$base/" && break
             sleep 2
           done
-          echo "Production health check failed after deploy" >&2
-          exit 1
+          # Check the scripts too: with one missing, the page still serves
+          # but the app is dead.
+          for path in / /app.js /vendor/strophe.umd.min.js; do
+            curl -sf -o /dev/null "$base$path" || { echo "Production health check failed: $path" >&2; exit 1; }
+          done
