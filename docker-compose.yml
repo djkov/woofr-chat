@@ -9,16 +9,30 @@ services:
     tmpfs:
       - /tmp
     # Bound to localhost only — lets CI curl it directly for health checks.
-    # NPM doesn't use this port; it reaches the container by name over
-    # npm_network instead (see naas's docker-compose.yml for the pattern).
+    # The reverse proxies don't use this port; they reach the container by
+    # name over their networks instead.
     ports:
       - "127.0.0.1:8090:8080"
     networks:
       - default
       - npm_network
+      - proxy
+    # Traefik (djkov/infra) routes woofr.chat here. The staging override turns
+    # this off so a smoke-test stack never receives production traffic.
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.woofr.rule=Host(`woofr.chat`)
+      - traefik.http.routers.woofr.entrypoints=websecure
+      - traefik.http.routers.woofr.tls.certresolver=letsencrypt
+      - traefik.http.services.woofr.loadbalancer.server.port=8080
 
 networks:
   # Nginx Proxy Manager's network — it's a separate stack, so it must
   # already exist on the host (created by NPM's own compose file).
+  # Goes away after the Traefik cutover.
   npm_network:
+    external: true
+  # Traefik's shared network (djkov/infra: `docker network create proxy`).
+  proxy:
     external: true

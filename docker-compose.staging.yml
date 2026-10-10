@@ -7,3 +7,7 @@ services:
     container_name: woofr-client-staging
     ports: !override
       - "127.0.0.1:8091:8080"
+    # Labels merge by key: this disables the Traefik router from
+    # docker-compose.yml, so production traffic never reaches staging.
+    labels:
+      - traefik.enable=false
