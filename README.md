@@ -139,7 +139,7 @@ python3 -m http.server 8080
 ### Message history
 
 - Chats are kept **on this device** so they're there when you sign back in — **encrypted with your password** (the same PBKDF2-derived key as the OMEMO keys), one IndexedDB record per conversation, keyed by a hash so the database doesn't name your contacts.
-- Messages are **deleted automatically** after the retention period: 30 days by default; 7, 30 or 90 days, or *Don't keep*, under **Settings → Message history**. Each message shows how long it has left — "⏳ 12 days left" on the time stamps in the WeChat theme, `⏳12d` on each line in retro — and hovering shows the exact date.
+- Messages are **deleted automatically** after the retention period: 30 days by default; 7, 30 or 90 days, or *Don't keep*, under **Settings → Message history**. Each message shows how long it has left — "12 days left" on the time stamps in the WeChat theme, `12d left` on each line in retro — and hovering shows the exact date.
 - It has to be local: OMEMO message keys are single-use, so history can't be re-fetched from the server and decrypted again.
 - *Don't keep* deletes what's saved and stops saving; *Remove this device's keys and history* (Settings → Shared computer?) deletes it along with the keys. A second tab for the same account shows the history but doesn't write it.
 

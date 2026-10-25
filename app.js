@@ -286,8 +286,8 @@ function daysLeft(ts) {
 
 function expiryLabel(ts, short) {
   const n = daysLeft(ts);
-  if (short) return '⏳' + n + 'd';
-  return n === 0 ? '⏳ deleted today' : '⏳ ' + n + (n === 1 ? ' day left' : ' days left');
+  if (short) return n + 'd left';
+  return n === 0 ? 'deleted today' : n + (n === 1 ? ' day left' : ' days left');
 }
 
 function expiryTitle(ts) {
@@ -399,7 +399,7 @@ function historySection() {
   row.appendChild(pick);
   const days = historyDays();
   s.append(row, el('p', 'muted', days
-    ? 'Messages are saved on this device, encrypted with your password, and deleted ' + days + ' days after they were sent. ⏳ shows how many days each one has left. Your contacts\' devices keep their own copies.'
+    ? 'Messages are saved on this device, encrypted with your password, and deleted ' + days + ' days after they were sent. Each message shows how many days it has left. Your contacts\' devices keep their own copies.'
     : 'Nothing is saved: chats start empty each time you sign in.'));
   return s;
 }
