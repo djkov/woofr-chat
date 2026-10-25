@@ -40,9 +40,9 @@ jobs:
             curl -sf -o /dev/null "$base/" && break
             sleep 2
           done
-          # Check the scripts too: with one missing, the page still serves
-          # but the app is dead.
-          for path in / /app.js /vendor/strophe.umd.min.js; do
+          # Check the scripts and stylesheet too: with one missing, the page
+          # still serves but the app is dead.
+          for path in / /app.js /omemo.js /styles.css /vendor/strophe.umd.min.js /vendor/libsignal.min.js; do
             curl -sf -o /dev/null "$base$path" || { echo "Staging smoke test failed: $path" >&2; exit 1; }
           done
 

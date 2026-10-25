@@ -1,6 +1,6 @@
 # HIPAA Compliance Roadmap
 
-> Status: **Phase 1 (client hardening) done** — 2026-10-10. Phases 2–3 not started.
+> Status: **Phase 1 (client hardening) done** — 2026-10-10. **Phase 2 (OMEMO end-to-end encryption) done** — 2026-10-24. Phase 3 not started.
 > Motivation: data privacy by design, ahead of any commercial use.
 >
 > Bottom line: the web client now covers the technical safeguards a browser
@@ -37,15 +37,15 @@ Split between this client and the XMPP server. See below.
 | Automatic logoff | Client | ✅ Lock after 5 min idle, full sign-out + wipe after 15 min |
 | Session lock / re-auth | Client | ✅ Password re-entry; 5 failed attempts → sign-out |
 | PHI wiped on session end | Client | ✅ Every exit path (sign-out, timeout, failed unlock, dropped connection) goes through one teardown |
-| No PHI in browser storage | Client | ✅ No localStorage/IndexedDB/cookies; `Cache-Control: no-store` on everything |
+| No PHI in browser storage | Client | ✅ No message text, contacts or logs stored anywhere. IndexedDB holds only OMEMO key material, AES-GCM encrypted under the password; localStorage holds only the theme name. `Cache-Control: no-store` on everything |
 | No PHI in OS notifications | Client | ✅ Notifications say only "You have a new priority message" — no sender, no text; closed on sign-out |
 | No PHI to third parties | Client | ✅ No CDN (Strophe is vendored); spellcheck off on inputs (Chrome/Edge "enhanced spellcheck" sends text to the cloud) |
-| Integrity: XSS / script injection | Client | ✅ No untrusted data in `innerHTML`; CSP `script-src 'self'` (no inline script) |
+| Integrity: XSS / script injection | Client | ✅ No untrusted data in `innerHTML`; CSP `script-src 'self'; style-src 'self'` (no inline script or CSS, no eval) |
 | Integrity: messages reach the right person | Client | ✅ Fixed a bug where `a.b@x` and `a_b@x` shared a chat window (see below) |
 | Audit controls | **Server** | ❌ Not started — see Phase 3 |
 | Data at rest (offline messages, archives, logs) | **Server** | ❌ Not started — see Phase 3 |
 | Emergency / break-glass access | **Server** | ❌ Not started |
-| End-to-end encryption | Client + server | ❌ None — server can read message content. Not required by HIPAA, but see Phase 2 |
+| End-to-end encryption | Client | ✅ OMEMO, on by default and failing closed — see Phase 2. Server still sees metadata (who, when, how often) |
 
 ---
 
@@ -71,7 +71,9 @@ Implemented in `app.js` / `index.html` / `nginx.conf`:
 **Deliberately not built: client-side audit log panel.** The original plan included an in-session, user-visible, non-persisted log of sign-ins/messages. It wouldn't satisfy §164.312(b): a log that lives in the user's own browser, vanishes on reload, and can be edited from devtools isn't an audit trail. Audit controls belong on the server (Phase 3).
 
 **Invariants to keep** (a regression here undoes Phase 1):
-- No `localStorage`/`sessionStorage`/IndexedDB/cookies for anything that could contain PHI.
+- No `localStorage`/`sessionStorage`/IndexedDB/cookies for anything that could contain PHI. The two exceptions are deliberate and narrow: the theme name (localStorage), and OMEMO key material in IndexedDB — always encrypted under the password, never message text, contact lists or logs.
+- No `style=""` attributes or inline `<style>` (the CSP blocks them).
+- Nothing is sent unencrypted unless the user turned encryption off for that chat.
 - No inline `<script>` or `on*=""` attributes; no untrusted data in `innerHTML`.
 - No third-party origins in the CSP.
 - Notifications stay content-free.
@@ -79,11 +81,24 @@ Implemented in `app.js` / `index.html` / `nginx.conf`:
 
 ---
 
-## Phase 2 — End-to-end encryption (OMEMO, XEP-0384)
+## Phase 2 — End-to-end encryption (OMEMO, XEP-0384) ✅ (done)
 
 HIPAA doesn't require E2E encryption — a server that holds plaintext is acceptable if the server itself is covered (BAA, access control, audit, protected storage). E2E is still worth having: it takes the server operator, backups and logs out of the set of things that can read message content, which shrinks the Phase 3 burden.
 
-Building OMEMO into this hand-rolled client is a large project (Signal protocol, device lists, key exchange, multi-device). **Converse.js ships OMEMO already** — given the plan to move the web client to Converse.js, get E2E there rather than here.
+This was originally deferred to a Converse.js migration. It's now built into this client instead (`omemo.js`, on a vendored Signal-protocol library), so the hardening from Phase 1 is kept.
+
+1. **OMEMO (legacy `eu.siacs.conversations.axolotl` namespace)** — what Conversations, Monal, Gajim, Dino and Converse.js speak. Priority-message text is encrypted too; nudges carry no content.
+2. **Fails closed.** Every chat is encrypted by default. If the contact has no OMEMO device, or none we can trust, the message is not sent; turning encryption off is per chat, behind a confirmation, and plaintext messages are flagged in the log.
+3. **Trust:** blind trust before verification, with fingerprint verification in the UI. After a contact has a verified device, new devices aren't used until the user decides. A changed identity key blocks that device in both directions until explicitly accepted (the library's own check for this is broken on the PreKey path; `omemo.js` enforces it in its key store).
+4. **Key storage.** OMEMO keys must persist, or the fingerprint changes on every sign-in and verification means nothing. They live in IndexedDB as one record per account (keyed by a hash of the JID), AES-256-GCM encrypted under a PBKDF2 (600k) key derived from the password at sign-in; the password itself is still not kept. Ratchet state is written before any message is sent or shown, so a reload can't reuse a message key. A Web Lock stops two tabs from sharing one ratchet. *Settings → Remove this device's keys* erases the record and unpublishes the device (shared computers).
+5. **CSP tightened** alongside: CSS moved to `styles.css`, so `style-src 'unsafe-inline'` is gone.
+
+**Remaining gaps / caveats:**
+- **Metadata** (who talks to whom, when, message sizes) is still visible to the server.
+- **Endpoint risk:** anyone with the password and this browser profile can decrypt the key store. Workstation policy (Phase 3 notes) still matters.
+- **The Signal library** (`@privacyresearch/libsignal-protocol-typescript`) is a community port without a public audit, and is **GPL-3.0** — a licensing decision for any commercial distribution of the client.
+- **Not covered:** group chats (no MUC), messages sent from other devices (no carbons), history (no MAM), and the newer `urn:xmpp:omemo:2`.
+- **Offline messages** stored by the server (`mod_offline`) are now ciphertext when sent from OMEMO clients — but Phase 3's retention policy still applies to anything sent unencrypted.
 
 ---
 
