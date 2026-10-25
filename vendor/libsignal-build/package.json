@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "description": "Recipe for vendor/libsignal.min.js — see README (Development Notes).",
+  "scripts": {
+    "build": "esbuild entry.js --bundle --format=iife --global-name=libsignal --platform=browser --external:fs --external:path --external:crypto --minify --target=es2020 --legal-comments=none --outfile=../libsignal.min.js"
+  },
+  "dependencies": {
+    "@privacyresearch/libsignal-protocol-typescript": "0.0.16"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
+  }
+}
