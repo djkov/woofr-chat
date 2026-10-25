@@ -160,6 +160,22 @@ const Omemo = (() => {
       this.rec = null;
       await idbOp('readwrite', s => s.delete(this.id));
     }
+
+    // For other on-device data under the same key (history.js). `aad` names
+    // the record, so a ciphertext can't be swapped into another place.
+    async seal(value, aad) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv, additionalData: utf8.encode(this.id + '|' + aad) }, this.key,
+        utf8.encode(JSON.stringify(value)));
+      return { iv, ct };
+    }
+
+    async open(iv, ct, aad) {
+      const pt = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv, additionalData: utf8.encode(this.id + '|' + aad) }, this.key, ct);
+      return JSON.parse(unutf8.decode(pt));
+    }
   }
 
   // Called at sign-in, while the password is still at hand. The derived key is

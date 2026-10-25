@@ -244,6 +244,166 @@ let avatarImages = {};   // sha1 -> Promise<data: URL | null>
 let avatarAsked  = new Set(); // JIDs whose PEP avatar we've asked for this session
 let ownVcardHash = null; // our vCard photo hash, for XEP-0153 presence ('' = none, null = unknown)
 
+// ── History (history.js) ──────────────────────────────────────────────────
+// Kept on this device, encrypted with the password-derived key, and deleted
+// after the retention period. Each message shows how long it has left.
+const HISTORY_KEY  = 'woofr.history'; // retention in days, '0' = don't keep — not PHI
+const HISTORY_DAYS = [7, 30, 90];
+let sessionVault = null;     // the unlocked Vault, for history (and nothing else) this session
+let historyStore = null;     // History.Store while history is on
+let history      = new Map(); // jid -> messages, oldest first
+let expiryTimer  = null;
+
+function historyDays() {
+  try {
+    const v = localStorage.getItem(HISTORY_KEY);
+    if (v === '0') return 0;
+    return HISTORY_DAYS.includes(+v) ? +v : 30;
+  } catch {
+    return 30;
+  }
+}
+
+function sameDay(a, b) { return new Date(a).toDateString() === new Date(b).toDateString(); }
+
+// "11:33 PM" today, "Oct 24, 11:33 PM" before.
+function fmtTime(ts) {
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return sameDay(ts, Date.now()) ? time : d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + time;
+}
+
+// For the chat list: the time today, the date before that.
+function fmtListTime(ts) {
+  return sameDay(ts, Date.now())
+    ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function daysLeft(ts) {
+  return Math.max(0, Math.ceil((historyStore.expiresAt(ts) - Date.now()) / History.DAY));
+}
+
+function expiryLabel(ts, short) {
+  const n = daysLeft(ts);
+  if (short) return '⏳' + n + 'd';
+  return n === 0 ? '⏳ deleted today' : '⏳ ' + n + (n === 1 ? ' day left' : ' days left');
+}
+
+function expiryTitle(ts) {
+  return 'Deleted from this device on ' + new Date(historyStore.expiresAt(ts)).toLocaleDateString([], { dateStyle: 'medium' });
+}
+
+// Saves a message we've just sent or received.
+function recordMessage(jid, entry) {
+  if (!historyStore) return;
+  const list = history.get(jid) || [];
+  list.push(entry);
+  history.set(jid, list);
+  historyStore.save(jid, list);
+}
+
+async function loadHistory(c, vault) {
+  sessionVault = vault;
+  const days = historyDays();
+  if (!days) return;
+  const store = new History.Store(vault, days);
+  let loaded;
+  try {
+    loaded = await store.load();
+  } catch (e) {
+    console.warn('Couldn\'t load history', e);
+    return;
+  }
+  if (c !== conn) return;
+  historyStore = store;
+  history = loaded;
+  for (const [jid, msgs] of loaded) {
+    const last = msgs[msgs.length - 1];
+    const b = buddies[jid] || (buddies[jid] = { name: jid, show: 'offline' });
+    b.preview = (last.kind === 'priority' ? '[Priority] ' : '') + last.text.split('\n')[0].slice(0, 80);
+    b.time = fmtListTime(last.ts);
+  }
+  renderBuddyList();
+  clearInterval(expiryTimer);
+  expiryTimer = setInterval(sweepExpired, 60 * 60_000);
+}
+
+// Drops what has expired — from memory, disk and the screen — and refreshes
+// the days-left labels. Hourly, and when the retention setting changes.
+function sweepExpired() {
+  if (!historyStore) return;
+  for (const [jid, msgs] of history) {
+    const live = msgs.filter(m => !historyStore.expired(m));
+    if (live.length !== msgs.length) {
+      if (live.length) history.set(jid, live); else history.delete(jid);
+      historyStore.save(jid, live);
+    }
+  }
+  refreshExpiryLabels();
+}
+
+function refreshExpiryLabels() {
+  document.querySelectorAll('.chat-log [data-ts]').forEach(node => {
+    const ts = +node.dataset.ts;
+    if (historyStore && historyStore.expired({ ts })) { node.remove(); return; }
+    paintExpiry(node, ts);
+  });
+}
+
+function paintExpiry(node, ts) {
+  if (node.classList.contains('msg-timesep')) {
+    node.textContent = fmtTime(ts) + (historyStore ? '  ·  ' + expiryLabel(ts) : '');
+    node.title = historyStore ? expiryTitle(ts) : '';
+    return;
+  }
+  const tag = node.querySelector('.msg-expiry');
+  if (tag) tag.textContent = historyStore ? expiryLabel(ts, true) : '';
+  const target = node.querySelector('.bubble') || node.querySelector('.priority-body');
+  if (target) target.title = historyStore ? expiryTitle(ts) : '';
+}
+
+async function setHistoryDays(days) {
+  try { localStorage.setItem(HISTORY_KEY, String(days)); } catch { /* just don't remember it */ }
+  if (!days) {
+    if (historyStore) await historyStore.clear();
+    historyStore = null;
+    history = new Map();
+    clearInterval(expiryTimer);
+  } else if (historyStore) {
+    historyStore.days = days;
+    sweepExpired();
+  } else if (sessionVault && conn) {
+    // Turned on mid-session: start keeping what's on screen from now on.
+    historyStore = new History.Store(sessionVault, days);
+    clearInterval(expiryTimer);
+    expiryTimer = setInterval(sweepExpired, 60 * 60_000);
+  }
+  refreshExpiryLabels();
+}
+
+function historySection() {
+  const s = section('Message history');
+  const row = el('div', 'device-actions');
+  const pick = el('select', 'history-select');
+  pick.setAttribute('aria-label', 'Keep messages for');
+  pick.append(...HISTORY_DAYS.map(d => new Option('Keep for ' + d + ' days', String(d))), new Option('Don\'t keep', '0'));
+  pick.value = String(historyDays());
+  pick.onchange = async () => {
+    const days = +pick.value;
+    if (!days && !confirm('Stop keeping messages on this device?\n\nThe history saved here is deleted now. ' +
+      'Chats will start empty each time you sign in.')) { pick.value = String(historyDays()); return; }
+    await setHistoryDays(days);
+    renderModal();
+  };
+  row.appendChild(pick);
+  const days = historyDays();
+  s.append(row, el('p', 'muted', days
+    ? 'Messages are saved on this device, encrypted with your password, and deleted ' + days + ' days after they were sent. ⏳ shows how many days each one has left. Your contacts\' devices keep their own copies.'
+    : 'Nothing is saved: chats start empty each time you sign in.'));
+  return s;
+}
+
 // ── Your status (presence <show/> and <status/>) ──────────────────────────
 // Shared with everyone subscribed to your presence. Presence isn't end-to-end
 // encrypted, so the server sees the status text too — Settings says so. Not
@@ -659,9 +819,13 @@ function startOmemo(c) {
   omemoReady = (async () => {
     const vault = await omemoVault;
     if (!vault) throw new Error('this browser couldn\'t open its key storage');
+    await loadHistory(c, vault);
     await session.start(vault);
   })().catch(e => {
     if (c !== conn) return;
+    // Another tab owns this account's keys, and its history too: show what's
+    // saved here, but leave the writing to that tab.
+    if (e.code === 'locked') { historyStore = null; clearInterval(expiryTimer); }
     omemoError = e.message || String(e);
     console.warn('OMEMO unavailable', e);
     setStatus('End-to-end encryption is unavailable: ' + omemoError, 'error');
@@ -960,7 +1124,7 @@ function makeBuddyLi(jid, b) {
 function updatePreview(jid, text, incoming) {
   const b = buddies[jid] || (buddies[jid] = { name: jid, show: 'offline' });
   b.preview = text.split('\n')[0].slice(0, 80);
-  b.time = now();
+  b.time = fmtListTime(Date.now());
   if (incoming && !chatVisible(jid)) {
     b.unread = (b.unread || 0) + 1;
     chatWindows[jid]?.tab.classList.add('has-unread');
@@ -1040,7 +1204,8 @@ async function handleMessage(c, msg) {
   if (attention) onAttention(from, text, opts);
   else if (text !== null) {
     if (!chatWindows[from]) createChatWindow(from);
-    appendMsg(from, from, text, 'them', opts);
+    const row = appendMsg(from, from, text, 'them', opts);
+    recordMessage(from, { dir: 'in', kind: 'msg', text, ts: +row.dataset.ts, enc: opts.encrypted, untrusted: opts.untrusted });
   }
 }
 
@@ -1118,7 +1283,16 @@ function createChatWindow(jid) {
 
   if (!buddies[jid]) buddies[jid] = { name: jid, show: 'offline' }; // so the chat is reachable from the list
   chatWindows[jid] = { tab, win, log, input, encBtn, encrypt: true, sendQueue: Promise.resolve(), lastStamp: 0, noOmemoNoted: false };
-  appendMsg(jid, null, 'Conversation with ' + jid + ' started at ' + now(), 'system');
+  const past = history.get(jid);
+  if (past?.length) {
+    for (const m of past) {
+      const opts = { ts: m.ts, encrypted: m.enc, untrusted: m.untrusted, restored: true };
+      if (m.kind === 'priority') appendPriorityRow(jid, m.dir === 'out' ? myJid : displayName(jid), m.text, opts);
+      else appendMsg(jid, m.dir === 'out' ? myJid : jid, m.text, m.dir === 'out' ? 'me' : 'them', opts);
+    }
+  } else {
+    appendMsg(jid, null, 'Conversation with ' + jid + ' started at ' + now(), 'system');
+  }
   refreshChatEncryption(jid);
   checkOmemoSupport(jid);
 
@@ -1179,15 +1353,18 @@ function closeChat(jid, e) {
 
 // WeChat-style centred time, at most every five minutes. (Hidden in the
 // retro theme, where every line carries its own time.)
-function stampTime(chat) {
-  const t = Date.now();
-  if (t - chat.lastStamp < 5 * 60_000) return;
-  chat.lastStamp = t;
-  chat.log.appendChild(el('div', 'msg-timesep', now()));
+function stampTime(chat, ts) {
+  if (ts - chat.lastStamp < 5 * 60_000) return;
+  chat.lastStamp = ts;
+  const sep = el('div', 'msg-timesep');
+  sep.dataset.ts = ts;
+  paintExpiry(sep, ts);
+  chat.log.appendChild(sep);
 }
 
 // type: 'me' | 'them' | 'system' | 'warning' | 'nudge' | 'nudge-error'.
-// opts.encrypted / opts.untrusted mark how a chat message travelled.
+// opts.encrypted / opts.untrusted mark how a chat message travelled;
+// opts.ts / opts.restored are for messages from history.
 function appendMsg(jid, from, text, type, opts = {}) {
   const chat = chatWindows[jid];
   if (!chat) return null;
@@ -1196,11 +1373,13 @@ function appendMsg(jid, from, text, type, opts = {}) {
   if (type !== 'me' && type !== 'them') {
     row = el('div', 'msg-' + type, text);
   } else {
-    stampTime(chat);
+    const ts = opts.ts || Date.now();
+    stampTime(chat, ts);
     const mine = type === 'me';
     row = el('div', 'msg ' + (mine ? 'msg-me' : 'msg-them'));
+    row.dataset.ts = ts;
     const meta = el('span', 'msg-meta');
-    meta.append(el('span', 'msg-time', '[' + now() + ']'), ' ');
+    meta.append(el('span', 'msg-time', '[' + fmtTime(ts) + ']'), ' ', el('span', 'msg-expiry'), ' ');
     if (opts.encrypted) meta.append(el('span', 'msg-lock', '🔒'), ' ');
     meta.append(el('span', 'nick', (mine ? myJid : displayName(from)) + ':'), ' ');
     const main = el('div', 'msg-main');
@@ -1208,7 +1387,8 @@ function appendMsg(jid, from, text, type, opts = {}) {
     if (!opts.encrypted) main.append(el('span', 'msg-flag plain', 'Not encrypted'));
     else if (opts.untrusted) main.append(el('span', 'msg-flag untrusted', 'From an unverified device'));
     row.append(avatar(mine ? myJid : jid), main);
-    updatePreview(jid, text, !mine);
+    paintExpiry(row, ts);
+    if (!opts.restored) updatePreview(jid, text, !mine);
   }
   log.appendChild(row);
   log.scrollTop = log.scrollHeight;
@@ -1253,6 +1433,7 @@ function sendText(jid, priority) {
       if (priority) stanza.c('attention', { xmlns: NS_ATTENTION }).up();
       c.send(stanza);
       row.classList.remove('pending');
+      recordMessage(jid, { dir: 'out', kind: priority ? 'priority' : 'msg', text, ts: +row.dataset.ts, enc: encrypt, untrusted: false });
     } catch (e) {
       if (c !== conn) return;
       row.classList.remove('pending');
@@ -1276,9 +1457,12 @@ function chatKey(e, jid) {
 let alertInterval = null;
 
 function makePriorityRow(fromName, text, opts) {
+  const ts     = opts.ts || Date.now();
   const row    = el('div', 'msg-priority');
+  row.dataset.ts = ts;
   const header = el('div', 'priority-header');
-  header.append(el('span', null, '⚠ Priority Message (!):'), el('span', 'msg-time', '[' + now() + '] ' + fromName));
+  header.append(el('span', null, '⚠ Priority Message (!):'), el('span', 'msg-expiry'),
+    el('span', 'msg-time', '[' + fmtTime(ts) + '] ' + fromName));
   row.append(header, el('div', 'priority-body', text));
   if (!opts.encrypted) row.append(el('span', 'msg-flag plain', 'Not encrypted'));
   else if (opts.untrusted) row.append(el('span', 'msg-flag untrusted', 'From an unverified device'));
@@ -1290,7 +1474,8 @@ function appendPriorityRow(jid, fromName, text, opts = {}) {
   const row = makePriorityRow(fromName, text, opts);
   chat.log.appendChild(row);
   chat.log.scrollTop = chat.log.scrollHeight;
-  updatePreview(jid, '[Priority] ' + text, fromName !== myJid);
+  paintExpiry(row, +row.dataset.ts);
+  if (!opts.restored) updatePreview(jid, '[Priority] ' + text, fromName !== myJid);
   return row;
 }
 
@@ -1365,7 +1550,9 @@ function onAttention(from, text, opts) {
   if (!chatWindows[from]) createChatWindow(from);
   const name = displayName(from);
   if (text !== null) {
-    appendPriorityMsg(from, name, text, opts);
+    const ts = Date.now();
+    appendPriorityMsg(from, name, text, { ...opts, ts });
+    recordMessage(from, { dir: 'in', kind: 'priority', text, ts, enc: opts.encrypted, untrusted: opts.untrusted });
     startAlertLoop();
     notify('You have a new priority message.', { persist: true, tag: 'priority' });
   } else {
@@ -1528,6 +1715,7 @@ function renderSettings(body, token) {
 
   body.appendChild(statusSection());
   body.appendChild(profilePictureSection());
+  body.appendChild(historySection());
 
   const theme = section('Theme');
   const row = el('div', 'device-actions');
@@ -1571,9 +1759,9 @@ function renderSettings(body, token) {
 
     const forget = section('Shared computer?');
     forget.appendChild(el('p', 'muted',
-      'Your encryption keys stay in this browser (encrypted with your password) so your fingerprint stays the same. ' +
+      'Your encryption keys and message history stay in this browser (encrypted with your password). ' +
       'Remove them if other people use this computer.'));
-    const btn = el('button', 'btn danger', 'Remove this device\'s keys');
+    const btn = el('button', 'btn danger', 'Remove this device\'s keys and history');
     btn.onclick = forgetThisDevice;
     const row = el('div', 'device-actions');
     row.appendChild(btn);
@@ -1693,11 +1881,17 @@ function openEncryptionDetails(jid) {
 
 async function forgetThisDevice() {
   if (!omemo?.ready) return;
-  if (!confirm('Remove this device\'s encryption keys?\n\n' +
-    'Encrypted messages sent to this device can no longer be read here, and you\'ll get a new fingerprint ' +
-    'the next time you sign in on this computer.')) return;
+  if (!confirm('Remove this device\'s encryption keys and message history?\n\n' +
+    'The history saved on this computer is deleted, encrypted messages sent to this device can no longer be ' +
+    'read here, and you\'ll get a new fingerprint the next time you sign in on this computer.')) return;
   const c = conn;
   try {
+    if (historyStore) await historyStore.clear();
+    historyStore = null;
+    history = new Map();
+    sessionVault = null;
+    clearInterval(expiryTimer);
+    refreshExpiryLabels();
     await omemo.forget();
   } catch (e) {
     alert('Couldn\'t remove the keys: ' + e.message);
@@ -1946,6 +2140,7 @@ function endSession(reason = 'Not connected.', type = '') {
   myJid = ''; buddies = {}; chatWindows = {}; activeChat = null; nudgeTimestamps = {};
   avatars = {}; avatarImages = {}; avatarAsked = new Set(); ownVcardHash = null;
   myShow = ''; myStatusText = ''; idleAway = false; requests = new Set();
+  sessionVault = null; historyStore = null; history = new Map(); clearInterval(expiryTimer); expiryTimer = null;
   document.getElementById('chat-subtitle').textContent = '';
   document.getElementById('my-dot').className = 'status-dot';
   document.getElementById('btn-my-status').textContent = '[online]';
