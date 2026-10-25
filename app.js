@@ -1903,6 +1903,45 @@ async function forgetThisDevice() {
   renderModal();
 }
 
+// ── New version notice ────────────────────────────────────────────────────
+// A tab keeps running the code it loaded, even after a deploy. Every few
+// minutes (and when the tab comes back to the foreground) the app re-fetches
+// its own files and compares a hash with the copy it started with; if they
+// differ, a banner offers a reload. It never reloads by itself: that would
+// sign the user out mid-conversation.
+const VERSION_FILES    = ['index.html', 'app.js', 'omemo.js', 'history.js', 'styles.css'];
+const VERSION_CHECK_MS = 5 * 60_000;
+let versionBaseline = null;
+let versionTimer    = null;
+
+async function currentVersion() {
+  const parts = await Promise.all(VERSION_FILES.map(async f => {
+    const r = await fetch(f, { cache: 'no-store', credentials: 'omit' });
+    if (!r.ok) throw new Error(f + ' ' + r.status);
+    return new Uint8Array(await r.arrayBuffer());
+  }));
+  const all = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  parts.forEach(p => { all.set(p, at); at += p.length; });
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', all))].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function checkVersion() {
+  try {
+    const v = await currentVersion();
+    if (!versionBaseline) versionBaseline = v;
+    else if (v !== versionBaseline) {
+      document.getElementById('update-banner').hidden = false;
+      clearInterval(versionTimer);
+    }
+  } catch { /* offline, or mid-deploy: try again later */ }
+}
+
+function startVersionCheck() {
+  checkVersion();
+  versionTimer = setInterval(checkVersion, VERSION_CHECK_MS);
+}
+
 // ── Screen saver (retro theme) ───────────────────────────────────────────
 // The bouncing logo of a 2000s DVD player. It runs while the session is
 // locked — any key or click brings back the unlock prompt, and it comes back
@@ -2217,6 +2256,11 @@ function init() {
   document.getElementById('btn-lock-sign-out').onclick = () => endSession();
   document.getElementById('inp-unlock-pass').onkeydown = e => { if (e.key === 'Enter') doUnlock(); };
   document.getElementById('modal-close').onclick       = closeModal;
+  document.getElementById('btn-update').onclick        = () => {
+    // Reloading ends the session (everything is wiped), so ask first.
+    if (!sessionActive || confirm('Reloading signs you out. Continue?')) location.reload();
+  };
+  startVersionCheck();
   document.getElementById('modal').onclick             = e => { if (e.target.id === 'modal') closeModal(); };
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && modalState) closeModal(); });
 
@@ -2227,6 +2271,7 @@ function init() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     checkIdle();
+    checkVersion();
     if (activeChat && chatVisible(activeChat)) markRead(activeChat);
   });
 }
