@@ -16,7 +16,7 @@
 // ── State ──────────────────────────────────────────────────────────────────
 let conn = null;
 let myJid = '';
-let buddies = {}; // jid -> { name, show, preview, time, unread }
+let buddies = {}; // jid -> { local, theirs, groups, show, status, preview, time, unread, inRoster, sub, ask }
 let chatWindows = {}; // jid -> { tab, win, log, input, encBtn, encrypt, sendQueue, lastStamp, noOmemoNoted }
 let activeChat = null;
 let nudgeTimestamps = {}; // jid -> [ms, ...]
@@ -133,12 +133,24 @@ function el(tag, className, text) {
   return e;
 }
 
+// What to call someone: the name you gave them (roster, only your own
+// devices see it), else the name they publish, else just the part before the
+// @ — never the full address, which only shows in the contact's details.
 function displayName(jid) {
-  return buddies[jid]?.name || jid;
+  const b = buddies[jid];
+  return b?.local || b?.theirs || jid.split('@')[0];
+}
+
+function ownName() {
+  return myName || myJid.split('@')[0];
+}
+
+function cleanName(s) {
+  return String(s || '').replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX);
 }
 
 function shortName(jid) {
-  return displayName(bareJid(jid)).split('@')[0];
+  return displayName(bareJid(jid));
 }
 
 const AVATAR_COLORS = ['#5b8def', '#e8735a', '#3fae74', '#b072d0', '#e59a2f', '#3aa9bf', '#d9648f', '#7a8794'];
@@ -174,6 +186,7 @@ function paintAvatar(a) {
 
 function renderOwnStatus() {
   if (!myJid) return;
+  document.getElementById('my-jid-display').textContent = ownName();
   const show = myShow || (idleAway ? 'away' : '');
   const wrap = el('div', 'avatar-wrap');
   wrap.append(avatar(myJid), el('div', 'status-dot' + dotClass(show)));
@@ -239,6 +252,10 @@ const AVATAR_MAX_BYTES = 512 * 1024;
 const AVATAR_PX         = 128; // kept in memory; shown at up to 46px, so sharp on 2x screens
 const AVATAR_PUBLISH_PX = 192;
 
+const NAME_MAX      = 60;
+const NS_NICK       = 'http://jabber.org/protocol/nick';
+let myName          = '';        // the name we publish for ourselves
+let namesAsked      = new Set(); // JIDs whose published name we've asked for this session
 let avatars      = {};   // jid -> { src: 'pep' | 'vcard', hash, url }
 let avatarImages = {};   // sha1 -> Promise<data: URL | null>
 let avatarAsked  = new Set(); // JIDs whose PEP avatar we've asked for this session
@@ -320,7 +337,7 @@ async function loadHistory(c, vault) {
   history = loaded;
   for (const [jid, msgs] of loaded) {
     const last = msgs[msgs.length - 1];
-    const b = buddies[jid] || (buddies[jid] = { name: jid, show: 'offline' });
+    const b = buddies[jid] || (buddies[jid] = { show: 'offline' });
     b.preview = (last.kind === 'priority' ? '[Priority] ' : '') + last.text.split('\n')[0].slice(0, 80);
     b.time = fmtListTime(last.ts);
   }
@@ -560,6 +577,128 @@ async function loadOwnAvatar(c) {
 
 // Publishes a new picture (or removes it, with file = null): XEP-0084 for
 // current clients, and the vCard for clients that only read those.
+// The vCard is replaced as a whole, so keep everything except what we
+// own here (`drop`, by element name) and add the new parts with `add`.
+async function rewriteOwnVcard(c, drop, add) {
+  let vcard = null;
+  try { vcard = await fetchVcard(c, myJid); } catch { /* none yet */ }
+  const doc = new DOMParser().parseFromString('<vCard xmlns="vcard-temp"/>', 'text/xml');
+  const out = doc.documentElement;
+  if (vcard) [...vcard.childNodes].forEach(n => { if (!drop.includes(n.localName)) out.appendChild(doc.importNode(n, true)); });
+  add(doc, out);
+  await iqP(c, $iq({ type: 'set' }).cnode(out));
+}
+
+// ── Display names (XEP-0172 User Nickname, vCard FN/NICKNAME) ─────────────
+// Your name is published to your contacts. A contact's name is read the same
+// way. A nickname you give a contact is kept in your own roster instead, so
+// it follows you across your devices and they never see it.
+async function setOwnName(name) {
+  const c = conn;
+  name = cleanName(name);
+  const pub = $iq({ type: 'set' }).c('pubsub', { xmlns: NS_PUBSUB }).c('publish', { node: NS_NICK }).c('item', { id: 'current' });
+  if (name) pub.c('nick', { xmlns: NS_NICK }).t(name);
+  else pub.c('nick', { xmlns: NS_NICK });
+  await iqP(c, pub);
+  try {
+    await rewriteOwnVcard(c, ['FN', 'NICKNAME'], (doc, out) => {
+      if (!name) return;
+      const fn = doc.createElementNS(NS_VCARD, 'FN');
+      fn.textContent = name;
+      const nick = doc.createElementNS(NS_VCARD, 'NICKNAME');
+      nick.textContent = name;
+      out.append(fn, nick);
+    });
+  } catch (e) {
+    console.warn('Couldn\'t update the vCard name', e);
+  }
+  if (c !== conn) return;
+  myName = name;
+  renderOwnStatus();
+}
+
+function setTheirName(jid, name) {
+  const b = buddies[jid];
+  if (!b) return;
+  name = cleanName(name);
+  if (name === (b.theirs || '')) return;
+  b.theirs = name;
+  renderBuddyList();
+  if (jid === activeChat) updateChatHeader();
+  if (chatWindows[jid]) {
+    chatWindows[jid].tab.firstChild.textContent = shortName(jid);
+    refreshChatEncryption(jid);
+  }
+  refreshAvatars(jid);
+}
+
+function nickFromItems(items) {
+  const n = items && items.getElementsByTagNameNS(NS_NICK, 'nick')[0];
+  return n ? cleanName(n.textContent) : '';
+}
+
+function vcardName(vcard) {
+  const pick = tag => cleanName([...(vcard?.childNodes || [])].find(n => n.localName === tag)?.textContent);
+  return pick('NICKNAME') || pick('FN');
+}
+
+let nameQueue = Promise.resolve();
+
+// Someone's published name: their PEP nickname, else their vCard. Looked up
+// once per session, a few at a time.
+function requestName(c, jid) {
+  if (!jid || jid === myJid || namesAsked.has(jid)) return;
+  namesAsked.add(jid);
+  nameQueue = nameQueue.then(async () => {
+    if (c !== conn) return;
+    let name = '';
+    try {
+      const res = await iqP(c, $iq({ type: 'get', to: jid }).c('pubsub', { xmlns: NS_PUBSUB }).c('items', { node: NS_NICK, max_items: 1 }));
+      name = nickFromItems(res);
+    } catch { /* no PEP nickname */ }
+    if (!name) {
+      try { name = vcardName(await fetchVcard(c, jid)); } catch { /* no vCard */ }
+    }
+    if (c === conn && name) setTheirName(jid, name);
+  }).catch(() => {});
+}
+
+async function loadOwnName(c) {
+  let name = '';
+  try {
+    const res = await iqP(c, $iq({ type: 'get' }).c('pubsub', { xmlns: NS_PUBSUB }).c('items', { node: NS_NICK, max_items: 1 }));
+    name = nickFromItems(res);
+  } catch { /* none */ }
+  if (!name) {
+    try { name = vcardName(await fetchVcard(c, myJid)); } catch { /* none */ }
+  }
+  if (c === conn && name) { myName = name; renderOwnStatus(); }
+}
+
+function nameSection() {
+  const s = section('Your name');
+  const row = el('div', 'device-actions');
+  const text = el('input', 'status-input');
+  text.type = 'text';
+  text.maxLength = NAME_MAX;
+  text.placeholder = myJid.split('@')[0];
+  text.value = myName;
+  text.spellcheck = false;
+  text.setAttribute('aria-label', 'Your name');
+  const save = el('button', 'btn primary', 'Save');
+  const note = el('span', 'muted');
+  const apply = async () => {
+    note.textContent = 'Saving…';
+    try { await setOwnName(text.value); note.textContent = 'Saved.'; }
+    catch (e) { note.textContent = 'That didn\'t work: ' + (e?.message || 'the server refused it') + '.'; }
+  };
+  save.onclick = apply;
+  text.onkeydown = e => { if (e.key === 'Enter') apply(); };
+  row.append(text, save, note);
+  s.append(row, el('p', 'muted', 'Your contacts see this name instead of your address.'));
+  return s;
+}
+
 async function setOwnAvatar(file) {
   const c = conn;
   let bytes = null, hash = '', url = null;
@@ -581,14 +720,9 @@ async function setOwnAvatar(file) {
     await iqP(c, pub(NS_AVATAR_META, 'current').c('metadata', { xmlns: NS_AVATAR_META }));
   }
 
-  // The vCard is replaced as a whole, so keep everything but the photo.
   try {
-    let vcard = null;
-    try { vcard = await fetchVcard(c, myJid); } catch { /* none yet */ }
-    const doc = new DOMParser().parseFromString('<vCard xmlns="vcard-temp"/>', 'text/xml');
-    const out = doc.documentElement;
-    if (vcard) [...vcard.childNodes].forEach(n => { if (n.localName !== 'PHOTO') out.appendChild(doc.importNode(n, true)); });
-    if (bytes) {
+    await rewriteOwnVcard(c, ['PHOTO'], (doc, out) => {
+      if (!bytes) return;
       const photo = doc.createElementNS(NS_VCARD, 'PHOTO');
       const type = doc.createElementNS(NS_VCARD, 'TYPE');
       type.textContent = 'image/png';
@@ -596,8 +730,7 @@ async function setOwnAvatar(file) {
       binval.textContent = bytesToB64(bytes);
       photo.append(type, binval);
       out.appendChild(photo);
-    }
-    await iqP(c, $iq({ type: 'set' }).cnode(out));
+    });
   } catch (e) {
     console.warn('Couldn\'t update the vCard photo', e);
   }
@@ -739,7 +872,8 @@ function onConnected() {
   c.pass = null; // only needed during SASL — don't keep it for the whole session
   sessionActive = true;
   myJid = bareJid(c.jid);
-  document.getElementById('my-jid-display').textContent = myJid;
+  document.getElementById('my-jid-display').textContent = ownName();
+  document.getElementById('my-jid-display').title = myJid;
   renderOwnStatus();
   requestNotifPermission();
 
@@ -759,8 +893,8 @@ function onConnected() {
   // roster to tell contacts we added from strangers.
   c.sendIQ(
     $iq({type: 'get'}).c('query', {xmlns: Strophe.NS.ROSTER}),
-    live(iq => { onRoster(iq); sendPresence(c); loadOwnAvatar(c); }),
-    live(() => { sendPresence(c); loadOwnAvatar(c); })
+    live(iq => { onRoster(iq); sendPresence(c); loadOwnAvatar(c); loadOwnName(c); }),
+    live(() => { sendPresence(c); loadOwnAvatar(c); loadOwnName(c); })
   );
 
   startIdleTimer();
@@ -882,7 +1016,7 @@ function refreshChatEncryption(jid) {
   chat.encBtn.className = 'enc-btn ' + cls;
   chat.encBtn.title = title;
   chat.encBtn.replaceChildren(icon(state === 'off' ? ICON_UNLOCK : ICON_LOCK), el('span', null, label));
-  chat.input.placeholder = (state === 'off' ? 'Unencrypted message to ' : 'Encrypted message to ') + jid + '…';
+  chat.input.placeholder = (state === 'off' ? 'Unencrypted message to ' : 'Encrypted message to ') + displayName(jid) + '…';
   if (jid === activeChat) updateChatHeader();
 }
 
@@ -931,8 +1065,10 @@ function applyRosterItem(item) {
     }
     return;
   }
-  const b = buddies[bare] || (buddies[bare] = { name: bare, show: 'offline' });
-  b.name     = item.getAttribute('name') || bare;
+  const b = buddies[bare] || (buddies[bare] = { show: 'offline' });
+  const nick = cleanName(item.getAttribute('name'));
+  b.local    = nick && nick !== bare ? nick : '';
+  b.groups   = [...item.getElementsByTagName('group')].map(g => g.textContent);
   b.inRoster = true;
   b.sub      = item.getAttribute('subscription') || 'none';
   b.ask      = item.getAttribute('ask') === 'subscribe';
@@ -942,6 +1078,7 @@ function applyRosterItem(item) {
 
 function onRoster(iq) {
   iq.querySelectorAll('item').forEach(applyRosterItem);
+  Object.keys(buddies).forEach(jid => requestName(conn, jid));
   renderBuddyList();
 }
 
@@ -953,7 +1090,13 @@ function onRosterPush(iq) {
   iq.querySelectorAll('item').forEach(applyRosterItem);
   conn.send($iq({ type: 'result', id: iq.getAttribute('id') }));
   renderBuddyList();
+  Object.keys(chatWindows).forEach(jid => {
+    chatWindows[jid].tab.firstChild.textContent = shortName(jid);
+    refreshChatEncryption(jid);
+    refreshAvatars(jid);
+  });
   if (activeChat) updateChatHeader();
+  if (modalState?.kind === 'contact') renderModal();
   return true;
 }
 
@@ -961,7 +1104,7 @@ function addBuddy() {
   const jid = document.getElementById('inp-add-buddy').value.trim();
   if (!jid || !conn) return;
   const bare = bareJid(jid);
-  const b = buddies[bare] || (buddies[bare] = { name: bare, show: 'offline' });
+  const b = buddies[bare] || (buddies[bare] = { show: 'offline' });
   b.inRoster = true;
   b.ask = true;
   conn.send($pres({to: bare, type: 'subscribe'}));
@@ -990,7 +1133,7 @@ function approveRequest(jid) {
   if (!conn) return;
   requests.delete(jid);
   conn.send($pres({ to: jid, type: 'subscribed' }));
-  const b = buddies[jid] || (buddies[jid] = { name: jid, show: 'offline' });
+  const b = buddies[jid] || (buddies[jid] = { show: 'offline' });
   // Make it mutual: ask to see theirs too, unless we already do (or asked).
   if (!(b.sub === 'to' || b.sub === 'both' || b.ask)) {
     b.ask = true;
@@ -1020,7 +1163,7 @@ function onPresence(pres) {
   if (!['available', 'unavailable'].includes(type)) return true; // subscribed, unsubscribe(d), probe, error
   if (type !== 'unavailable') onVcardUpdate(conn, from, pres);
 
-  if (!buddies[from]) buddies[from] = { name: from, show: 'offline' };
+  if (!buddies[from]) buddies[from] = { show: 'offline' };
   buddies[from].show = (type === 'unavailable') ? 'offline' : show;
   const statusEl = [...pres.childNodes].find(n => n.localName === 'status');
   buddies[from].status = type === 'unavailable' ? '' : (statusEl?.textContent.trim().slice(0, STATUS_MAX) || '');
@@ -1077,7 +1220,7 @@ function makeRequestLi(jid) {
   wrap.appendChild(avatar(jid));
   const info = el('div', 'buddy-info');
   const line1 = el('div', 'buddy-line1');
-  line1.appendChild(el('span', 'buddy-name', jid));
+  line1.appendChild(el('span', 'buddy-name', buddies[jid]?.theirs ? buddies[jid].theirs + ' (' + jid + ')' : jid));
   const line2 = el('div', 'buddy-line2');
   line2.appendChild(el('span', 'buddy-preview', 'Wants to add you'));
   info.append(line1, line2);
@@ -1103,7 +1246,7 @@ function makeBuddyLi(jid, b) {
   wrap.append(avatar(jid), el('div', 'status-dot' + dotClass(b.show)));
 
   const line1 = el('div', 'buddy-line1');
-  line1.append(el('span', 'buddy-name', b.name || jid));
+  line1.append(el('span', 'buddy-name', displayName(jid)));
   if (b.status) line1.append(el('span', 'buddy-status', b.status));
   line1.append(el('span', 'buddy-time', b.time || ''));
   const line2 = el('div', 'buddy-line2');
@@ -1122,7 +1265,7 @@ function makeBuddyLi(jid, b) {
 // Last message shown under the contact's name, plus an unread count while
 // the chat isn't on screen.
 function updatePreview(jid, text, incoming) {
-  const b = buddies[jid] || (buddies[jid] = { name: jid, show: 'offline' });
+  const b = buddies[jid] || (buddies[jid] = { show: 'offline' });
   b.preview = text.split('\n')[0].slice(0, 80);
   b.time = fmtListTime(Date.now());
   if (incoming && !chatVisible(jid)) {
@@ -1165,6 +1308,12 @@ async function handleMessage(c, msg) {
 
   const type = msg.getAttribute('type') || 'normal';
   const avatarPush = [...msg.getElementsByTagNameNS(NS_PUBSUB_EVENT, 'items')].find(i => i.getAttribute('node') === NS_AVATAR_META);
+  const nickPush = [...msg.getElementsByTagNameNS(NS_PUBSUB_EVENT, 'items')].find(i => i.getAttribute('node') === NS_NICK);
+  if (nickPush) {
+    const who = bareJid(msg.getAttribute('from')) || myJid;
+    if (who === myJid) { myName = nickFromItems(nickPush); renderOwnStatus(); } else setTheirName(who, nickFromItems(nickPush));
+    return;
+  }
   if (avatarPush) { onAvatarMetadata(c, bareJid(msg.getAttribute('from')) || myJid, avatarPush.getElementsByTagNameNS(NS_AVATAR_META, 'metadata')[0]); return; }
   if (omemo?.handleEvent(msg)) return; // PEP device-list push
   if (type === 'groupchat' || type === 'headline') return;
@@ -1225,6 +1374,7 @@ function showBuddyPanelMobile() {
 function openChat(jid) {
   if (!chatWindows[jid]) createChatWindow(jid);
   requestAvatar(conn, jid);
+  requestName(conn, jid);
   switchTab(jid);
   if (isMobileLayout()) document.getElementById('app-layout').classList.add('mobile-chat-open');
   markRead(jid);
@@ -1281,17 +1431,17 @@ function createChatWindow(jid) {
   encBtn.onclick                                  = () => toggleEncryption(jid);
   wins.appendChild(win);
 
-  if (!buddies[jid]) buddies[jid] = { name: jid, show: 'offline' }; // so the chat is reachable from the list
+  if (!buddies[jid]) buddies[jid] = { show: 'offline' }; // so the chat is reachable from the list
   chatWindows[jid] = { tab, win, log, input, encBtn, encrypt: true, sendQueue: Promise.resolve(), lastStamp: 0, noOmemoNoted: false };
   const past = history.get(jid);
   if (past?.length) {
     for (const m of past) {
       const opts = { ts: m.ts, encrypted: m.enc, untrusted: m.untrusted, restored: true };
-      if (m.kind === 'priority') appendPriorityRow(jid, m.dir === 'out' ? myJid : displayName(jid), m.text, opts);
+      if (m.kind === 'priority') appendPriorityRow(jid, m.dir === 'out' ? ownName() : displayName(jid), m.text, opts);
       else appendMsg(jid, m.dir === 'out' ? myJid : jid, m.text, m.dir === 'out' ? 'me' : 'them', opts);
     }
   } else {
-    appendMsg(jid, null, 'Conversation with ' + jid + ' started at ' + now(), 'system');
+    appendMsg(jid, null, 'Conversation with ' + displayName(jid) + ' started at ' + now(), 'system');
   }
   refreshChatEncryption(jid);
   checkOmemoSupport(jid);
@@ -1381,7 +1531,7 @@ function appendMsg(jid, from, text, type, opts = {}) {
     const meta = el('span', 'msg-meta');
     meta.append(el('span', 'msg-time', '[' + fmtTime(ts) + ']'), ' ', el('span', 'msg-expiry'), ' ');
     if (opts.encrypted) meta.append(el('span', 'msg-lock', '🔒'), ' ');
-    meta.append(el('span', 'nick', (mine ? myJid : displayName(from)) + ':'), ' ');
+    meta.append(el('span', 'nick', (mine ? ownName() : displayName(from)) + ':'), ' ');
     const main = el('div', 'msg-main');
     main.append(meta, el('div', 'bubble', text));
     if (!opts.encrypted) main.append(el('span', 'msg-flag plain', 'Not encrypted'));
@@ -1412,7 +1562,7 @@ function sendText(jid, priority) {
   const c = conn;
   const encrypt = chat.encrypt;
   const row = priority
-    ? appendPriorityRow(jid, myJid, text, { encrypted: encrypt })
+    ? appendPriorityRow(jid, ownName(), text, { encrypted: encrypt })
     : appendMsg(jid, myJid, text, 'me', { encrypted: encrypt });
   row.classList.add('pending');
 
@@ -1475,7 +1625,7 @@ function appendPriorityRow(jid, fromName, text, opts = {}) {
   chat.log.appendChild(row);
   chat.log.scrollTop = chat.log.scrollHeight;
   paintExpiry(row, +row.dataset.ts);
-  if (!opts.restored) updatePreview(jid, '[Priority] ' + text, fromName !== myJid);
+  if (!opts.restored) updatePreview(jid, '[Priority] ' + text, fromName !== ownName());
   return row;
 }
 
@@ -1713,6 +1863,7 @@ function profilePictureSection() {
 function renderSettings(body, token) {
   document.getElementById('modal-title').textContent = 'Settings';
 
+  body.appendChild(nameSection());
   body.appendChild(statusSection());
   body.appendChild(profilePictureSection());
   body.appendChild(historySection());
@@ -1772,8 +1923,55 @@ function renderSettings(body, token) {
   body.appendChild(aboutSection());
 }
 
+// Renaming is a roster update, so it syncs across your own devices and
+// nobody else sees it. The roster item is resent whole, groups included.
+function setLocalName(jid, name) {
+  const b = buddies[jid];
+  name = cleanName(name);
+  const item = { jid };
+  if (name) item.name = name;
+  const q = $iq({ type: 'set' }).c('query', { xmlns: Strophe.NS.ROSTER }).c('item', item);
+  (b.groups || []).forEach(g => q.c('group').t(g).up());
+  return iqP(conn, q);
+}
+
+function contactSection(jid) {
+  const b = buddies[jid] || {};
+  const s = section('Name');
+  s.append(el('p', 'muted', 'Address'), el('div', 'fingerprint', jid));
+  if (b.theirs) s.append(el('p', 'muted', 'They call themselves'), el('div', null, b.theirs));
+  if (!b.inRoster) {
+    s.appendChild(el('p', 'muted', 'Add them as a contact to give them a nickname.'));
+    return s;
+  }
+  s.appendChild(el('p', 'muted', 'Your nickname for them'));
+  const row = el('div', 'device-actions');
+  const text = el('input', 'status-input');
+  text.type = 'text';
+  text.maxLength = NAME_MAX;
+  text.placeholder = b.theirs || jid.split('@')[0];
+  text.value = b.local || '';
+  text.spellcheck = false;
+  text.setAttribute('aria-label', 'Your nickname for this contact');
+  const save = el('button', 'btn primary', 'Save');
+  const reset = el('button', 'btn', 'Use their name');
+  const note = el('span', 'muted');
+  const apply = async value => {
+    note.textContent = 'Saving…';
+    try { await setLocalName(jid, value); note.textContent = 'Saved.'; }
+    catch (e) { note.textContent = 'That didn\'t work: ' + (e?.message || 'the server refused it') + '.'; }
+  };
+  save.onclick = () => apply(text.value);
+  reset.onclick = () => { text.value = ''; apply(''); };
+  text.onkeydown = e => { if (e.key === 'Enter') apply(text.value); };
+  row.append(text, save, reset, note);
+  s.append(row, el('p', 'muted', 'Only you see this, on all your devices. They aren\'t told.'));
+  return s;
+}
+
 function renderContactSecurity(body, jid, token) {
-  document.getElementById('modal-title').textContent = 'Encryption — ' + displayName(jid);
+  document.getElementById('modal-title').textContent = displayName(jid);
+  body.appendChild(contactSection(jid));
   const chat = chatWindows[jid];
   const state = encryptionState(jid);
   const summary = {
@@ -2179,7 +2377,7 @@ function endSession(reason = 'Not connected.', type = '') {
   myJid = ''; buddies = {}; chatWindows = {}; activeChat = null; nudgeTimestamps = {};
   avatars = {}; avatarImages = {}; avatarAsked = new Set(); ownVcardHash = null;
   myShow = ''; myStatusText = ''; idleAway = false; requests = new Set();
-  sessionVault = null; historyStore = null; history = new Map(); clearInterval(expiryTimer); expiryTimer = null;
+  myName = ''; namesAsked = new Set(); nameQueue = Promise.resolve(); sessionVault = null; historyStore = null; history = new Map(); clearInterval(expiryTimer); expiryTimer = null;
   document.getElementById('chat-subtitle').textContent = '';
   document.getElementById('my-dot').className = 'status-dot';
   document.getElementById('btn-my-status').textContent = '[online]';
@@ -2229,7 +2427,7 @@ function init() {
     document.getElementById('btn-login').disabled = true;
   }
 
-  features = [NS_CAPS, NS_DISCO_INFO, NS_ATTENTION, Omemo.NOTIFY_FEATURE, NS_AVATAR_META + '+notify'].sort();
+  features = [NS_CAPS, NS_DISCO_INFO, NS_ATTENTION, Omemo.NOTIFY_FEATURE, NS_AVATAR_META + '+notify', NS_NICK + '+notify'].sort();
   capsVer  = computeCapsVer();
 
   applyTheme(savedTheme());

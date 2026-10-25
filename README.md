@@ -130,6 +130,12 @@ python3 -m http.server 8080
 - **Light and dark** for both themes. *Automatic* (the default) follows the system setting; *Light* or *Dark* overrides it.
 - Switch on the sign-in screen or in **Settings**. Only the theme and light/dark choice are remembered (`localStorage`, keys `woofr.theme`, `woofr.mode`, `woofr.screensaver` and `woofr.history`); they're applied before first paint.
 
+### Names
+
+- Addresses (`user@woofr.chat`) aren't shown by default. Each contact appears under, in order: **the nickname you gave them**, **the name they publish** (XEP-0172 nickname, else their vCard nickname/full name), else just the part before the `@`. The full address appears only in the contact's details.
+- **Settings → Your name** publishes your own name (PEP nickname and vCard, so other clients show it too). Contacts' name changes arrive live.
+- **Nicknames are private:** set one in the contact's details (`···` in the chat header, *Keys* in retro). It's stored in your own roster, so it follows you across your devices and the contact is never told. The roster item is resent whole, so their group is kept.
+
 ### Profile pictures
 
 - Contacts' pictures appear in the chat list, chat header area and next to messages (WeChat theme), read from **XEP-0084** (PEP avatars — Conversations, Monal, Dino, Gajim) with **XEP-0153** vCard avatars as the fallback (Converse and older clients).
@@ -210,7 +216,7 @@ XMPP over HTTP long-polling. Handled entirely by Strophe.js.
 `omemo.js`. Publishes this browser's device and bundle (100 one-time prekeys, refilled as they're used; signed prekey rotated weekly) with an `open` access model, fetches contacts' device lists and bundles, and encrypts each message with AES-128-GCM, the key + tag going to every recipient device through its Signal session. Outgoing messages carry an EME hint, a `store` hint, and a content-free fallback body.
 
 ### XEP-0030 / XEP-0115 — Service Discovery / Entity Capabilities
-The client answers `disco#info` and advertises a caps hash in its presence. That's what tells the server to push contacts' OMEMO device-list and avatar changes (`devicelist+notify`, `urn:xmpp:avatar:metadata+notify`).
+The client answers `disco#info` and advertises a caps hash in its presence. That's what tells the server to push contacts' OMEMO device-list and avatar changes (`devicelist+notify`, `urn:xmpp:avatar:metadata+notify`, `nick+notify`).
 
 ### XEP-0084 / XEP-0153 (+ XEP-0054) — Avatars
 Reads PEP avatars (metadata pushes, data fetched by hash) and vCard-based avatars (photo hash in presence, vCard fetched on change). Publishes your own picture to both, and advertises your vCard photo hash in presence.
@@ -305,6 +311,7 @@ styles.css           Shared layout, then [data-theme="retro"] and [data-theme="w
 
 app.js
 ├── Theme            savedTheme / applyTheme / setTheme, savedMode / applyMode / setMode (before first paint)
+├── Names            displayName / requestName / setOwnName / setLocalName / contactSection
 ├── Avatars          avatar / paintAvatar, onAvatarMetadata (XEP-0084), onVcardUpdate (XEP-0153), setOwnAvatar
 ├── Status           setMyStatus / renderOwnStatus / statusSection; auto-away while locked
 ├── Screen saver     startScreensaver / stopScreensaver / onSaverInput (retro lock screen)
