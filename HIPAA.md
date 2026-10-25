@@ -74,6 +74,7 @@ Implemented in `app.js` / `index.html` / `nginx.conf`:
 - Nothing that could contain PHI goes into `localStorage`/`sessionStorage`/cookies (they hold UI preferences only: theme, light/dark, screen saver, history retention).
 - IndexedDB holds exactly two things, both AES-GCM encrypted under the password-derived key: OMEMO key material, and conversation history (one record per chat, keyed by a hash, carrying no plaintext). History must stay subject to the retention period — expired messages are purged on load and hourly — and must be fully deleted by *Don't keep* and by *Remove this device's keys and history*. Status messages, pictures and logs are never stored.
 - `connect-src` is the BOSH endpoint plus `'self'`; the latter exists only so the app can notice a new deploy by re-fetching its own static files.
+- Addresses are hidden from the UI by default (names are shown instead). That's tidiness, not anonymity: the server and contacts still see them.
 - Profile pictures are fetched from the XMPP server only (never an outside URL), checked against their hash, redrawn without metadata, and kept in memory until sign-out.
 - Status messages are presence, which is never end-to-end encrypted — the UI says so, and they aren't remembered between sessions.
 - No `style=""` attributes or inline `<style>` (the CSP blocks them).
