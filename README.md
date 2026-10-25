@@ -9,11 +9,24 @@ An XMPP web client with OMEMO end-to-end encryption and two looks: a WeChat-styl
 | Property | Value |
 |---|---|
 | Files | `index.html` (markup), `styles.css` (both themes), `app.js` (UI + XMPP), `omemo.js` (encryption), `vendor/` |
+| Licence | GPL-3.0-or-later (see `LICENSE`) |
 | Dependencies | [Strophe.js 1.6.2](https://www.npmjs.com/package/strophe.js/v/1.6.2), [libsignal-protocol-typescript 0.0.16](https://www.npmjs.com/package/@privacyresearch/libsignal-protocol-typescript) — both vendored, no CDN |
 | Protocol | XMPP over BOSH (XEP-0124); OMEMO (XEP-0384) for end-to-end encryption |
 | BOSH endpoint | `https://woofr.chat:5443/bosh` (hardcoded, not shown to users) |
 | Auth | SASL PLAIN (SCRAM-SHA-512 disabled due to Strophe 1.6.2 bug) |
 | Browser APIs | Web Audio, Notifications, Web Crypto, IndexedDB (encrypted keys only), Web Locks |
+
+---
+
+## Licence
+
+woofr.chat is free software, licensed under the **GNU General Public License v3.0 or later** — see [`LICENSE`](LICENSE). Copyright © 2026 Jacob Kuznetsov.
+
+The web client's JavaScript is downloaded by every visitor, which counts as distribution, so the GPL's conditions apply to the deployed site even though it's free:
+
+- **Source:** this repository is the corresponding source. Keep it in step with what's deployed — the About dialog links here.
+- **Notices:** the app serves `LICENSE.txt` and the third-party licence files, and shows the required notice under *About & licences* (sign-in screen and Settings).
+- **Third-party code:** Strophe.js (MIT) and the libsignal bundle (GPL-3.0-only, with MIT / BSD-3-Clause / Apache-2.0 dependencies) — see `vendor/*LICENSE*.txt`. All are compatible with GPL-3.0.
 
 ---
 
@@ -62,7 +75,7 @@ The nginx config (`nginx.conf`) enforces:
 - `Strict-Transport-Security` — locks browsers to HTTPS for 2 years
 - `Content-Security-Policy` with `script-src 'self'` and `style-src 'self'` (no inline script or CSS, no eval, no CDNs) and `connect-src` locked to `https://woofr.chat:5443` only
 - `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy` / `-Resource-Policy: same-origin`
-- Only `/messenger/alpha/` and the files it loads (`app.js`, `omemo.js`, `styles.css`, two vendored scripts) are served (`/messenger/alpha` redirects to add the trailing slash); everything else returns 404 — no directory listing, no docs exposed
+- Only `/messenger/alpha/`, the files it loads (`app.js`, `omemo.js`, `styles.css`, two vendored scripts) and the licence texts are served (`/messenger/alpha` redirects to add the trailing slash); everything else returns 404 — no directory listing, no docs exposed
 
 See `HIPAA.md` for the full compliance gap analysis and roadmap.
 
@@ -288,7 +301,7 @@ vendor/libsignal-build/     The recipe that produced it (entry point, pinned loc
 ## Development Notes
 
 - **Strophe.js 1.6.2 UMD build** is vendored as `vendor/strophe.umd.min.js` — the ESM `src/strophe.js` fails in non-module `<script>` tags. To update it: `npm pack strophe.js@<version>` (npm verifies the tarball's integrity), copy `package/dist/strophe.umd.min.js` and `package/LICENSE.txt` into `vendor/`.
-- **libsignal** is vendored as one IIFE bundle (global `libsignal`). To rebuild or update it: in `vendor/libsignal-build/`, run `npm ci --ignore-scripts` then `npm run build`, which writes `vendor/libsignal.min.js`. It must stay free of `eval`/`new Function` (the CSP blocks them); the curve code is a pure-JS wasm2js build, so it is. Regenerate `vendor/libsignal-LICENSES.txt` if the dependency tree changes.
+- **libsignal** is vendored as one IIFE bundle (global `libsignal`). To rebuild or update it: in `vendor/libsignal-build/`, run `npm ci --ignore-scripts` then `npm run build`, which writes `vendor/libsignal.min.js` (with a banner pointing to its source, and the upstream licence comments kept at the end). It must stay free of `eval`/`new Function` (the CSP blocks them); the curve code is a pure-JS wasm2js build, so it is. Regenerate `vendor/libsignal-LICENSES.txt` if the dependency tree changes.
 - **No inline JS or CSS, ever.** The CSP is `script-src 'self'; style-src 'self'`, so inline `<script>`/`<style>` blocks and `onclick=""`/`style=""` attributes are blocked. Attach handlers from `app.js`, toggle visibility with the `hidden` attribute, and build DOM with `textContent` — never put JIDs, roster names or message text into `innerHTML`. (Setting `element.style.x` from JS is fine; the CSP doesn't restrict the CSSOM.)
 - **Themes:** shared layout goes at the top of `styles.css`; anything visual is scoped under `[data-theme="retro"]` or `[data-theme="wechat"]`. Put `t-retro` / `t-wechat` on markup that should only appear in one theme.
 - **OMEMO state** is only touched through `Omemo.Session`, whose jobs run one at a time and persist the ratchet before a message is sent or shown — never send a stanza built by `encrypt()` before that promise resolves.

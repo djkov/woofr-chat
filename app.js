@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jacob Kuznetsov
+
 // woofr.chat client.
 //
 // This lives in its own file (not inline in index.html) so the CSP can forbid
@@ -126,6 +129,9 @@ function avatar(jid) {
   a.setAttribute('aria-hidden', 'true');
   return a;
 }
+
+// Where the corresponding source lives (GPL-3.0 §6) — linked from About.
+const SOURCE_URL = 'https://github.com/djkov/woofr-chat';
 
 const svgNS = 'http://www.w3.org/2000/svg';
 const ICON_LOCK   = 'M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z';
@@ -949,7 +955,7 @@ function fmtWrap(ta, ch) {
 // ── Dialogs: settings and encryption details ──────────────────────────────
 // modalState says what's showing, so it can be re-rendered when OMEMO state
 // changes underneath it.
-let modalState = null; // { kind: 'settings' } | { kind: 'contact', jid }
+let modalState = null; // { kind: 'settings' } | { kind: 'about' } | { kind: 'contact', jid }
 let modalToken = 0;
 
 function showModal(state) {
@@ -979,7 +985,38 @@ function renderModal() {
   const body = document.getElementById('modal-body');
   body.replaceChildren();
   if (modalState.kind === 'settings') renderSettings(body, token);
+  else if (modalState.kind === 'about') renderAbout(body);
   else renderContactSecurity(body, modalState.jid, token);
+}
+
+function link(text, href) {
+  const a = el('a', null, text);
+  a.href = href;
+  if (/^https?:/.test(href)) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+  return a;
+}
+
+// GPL-3.0 §5(d): an interactive program shows its legal notices.
+function aboutSection() {
+  const s = section('About woofr.chat');
+  s.append(
+    el('p', 'muted', 'Copyright © 2026 Jacob Kuznetsov.'),
+    el('p', 'muted', 'woofr.chat is free software: you can redistribute it and/or modify it under the terms of the ' +
+      'GNU General Public License, version 3 or (at your option) any later version. It comes with ABSOLUTELY NO ' +
+      'WARRANTY, to the extent permitted by law.'));
+  const links = el('ul', 'about-links');
+  [['Source code', SOURCE_URL],
+   ['GNU General Public License v3', 'LICENSE.txt'],
+   ['Third-party licences: libsignal and its dependencies', 'vendor/libsignal-LICENSES.txt'],
+   ['Third-party licences: Strophe.js (MIT)', 'vendor/strophe.js-LICENSE.txt']]
+    .forEach(([text, href]) => { const li = el('li'); li.appendChild(link(text, href)); links.appendChild(li); });
+  s.appendChild(links);
+  return s;
+}
+
+function renderAbout(body) {
+  document.getElementById('modal-title').textContent = 'About & licences';
+  body.appendChild(aboutSection());
 }
 
 function ownFingerprintSection() {
@@ -1024,6 +1061,8 @@ function renderSettings(body, token) {
     forget.appendChild(row);
     body.appendChild(forget);
   }
+
+  body.appendChild(aboutSection());
 }
 
 function renderContactSecurity(body, jid, token) {
@@ -1321,6 +1360,7 @@ function init() {
 
   document.getElementById('btn-login').onclick         = doLogin;
   document.getElementById('btn-cancel').onclick        = doCancel;
+  document.getElementById('btn-about-login').onclick   = () => showModal({ kind: 'about' });
   document.getElementById('inp-pass').onkeydown        = e => { if (e.key === 'Enter') doLogin(); };
   document.getElementById('btn-add-buddy').onclick     = addBuddy;
   document.getElementById('inp-add-buddy').onkeydown   = e => { if (e.key === 'Enter') addBuddy(); };

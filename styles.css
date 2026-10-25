@@ -1,3 +1,7 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Jacob Kuznetsov
+ */
+
 /* woofr.chat styles.
  *
  * Three parts: layout shared by both themes, then each theme scoped by the
@@ -101,6 +105,10 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
 .modal-body { overflow-y: auto; }
 .fingerprint { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; word-spacing: 0.25em; user-select: all; overflow-wrap: anywhere; }
 .device-list { display: flex; flex-direction: column; gap: 6px; }
+.legal-row { text-align: center; }
+.legal-row a, .legal-row .link-btn { white-space: nowrap; }
+.link-btn { border: none; background: none; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
+.about-links { padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
 .device-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* XEP-0224 nudge */
@@ -628,6 +636,10 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
 [data-theme="retro"] .device-inactive  { color: #888; margin-left: 6px; }
 [data-theme="retro"] .device-warn, [data-theme="retro"] .enc-warn { color: #cc0000; font-weight: bold; }
 [data-theme="retro"] .muted { color: #666; }
+[data-theme="retro"] .legal-row { font-size: 10px; color: #444; }
+[data-theme="retro"] .legal-row a,
+[data-theme="retro"] .legal-row .link-btn,
+[data-theme="retro"] .modal-body a { color: #0000cc; }
 
 @media (max-width: 768px) {
   [data-theme="retro"] body { font-size: 13px; }
@@ -1125,6 +1137,10 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
 [data-theme="wechat"] .device-warn,
 [data-theme="wechat"] .enc-warn { color: var(--red); font-size: 13px; }
 [data-theme="wechat"] .muted { color: var(--text-2); }
+[data-theme="wechat"] .legal-row { font-size: 12px; color: var(--text-3); margin-top: -4px; }
+[data-theme="wechat"] .legal-row a,
+[data-theme="wechat"] .legal-row .link-btn { color: var(--text-2); }
+[data-theme="wechat"] .modal-body a { color: #576b95; font-size: 13px; }
 
 /* Phones: WeChat's mobile layout — title bars on top, tab bar at the bottom. */
 @media (max-width: 768px) {

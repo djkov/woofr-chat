@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Jacob Kuznetsov
+
 // OMEMO end-to-end encryption (XEP-0384), in the legacy
 // eu.siacs.conversations.axolotl namespace — the version Conversations, Monal,
 // Gajim, Dino and Converse.js actually speak.
