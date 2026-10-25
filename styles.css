@@ -81,6 +81,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 #chat-subtitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #chat-subtitle:empty { display: none; }
 .buddy-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.request-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
 #chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 #chat-header { display: flex; align-items: center; flex-shrink: 0; }
@@ -385,6 +386,8 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
 [data-theme="retro"] .buddy-status { flex: 1; font-style: italic; color: var(--r-text-4); font-size: 10px; }
 [data-theme="retro"] li.buddy:hover .buddy-status,
 [data-theme="retro"] li.buddy.active .buddy-status { color: var(--r-sel-text); }
+[data-theme="retro"] #buddy-list li.request { cursor: default; background: var(--r-note-bg); }
+[data-theme="retro"] .request-actions .btn { padding: 0 6px; font-size: 10px; }
 [data-theme="retro"] .profile-row .avatar { display: flex; width: 48px; height: 48px; font-size: 20px; border: 1px solid; border-color: var(--r-shadow) var(--r-light) var(--r-light) var(--r-shadow); }
 [data-theme="retro"] .status-input { flex: 1 1 160px; }
 
@@ -918,6 +921,8 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
   position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border: 2px solid var(--rail);
 }
 [data-theme="wechat"] .buddy-status { display: none; }
+[data-theme="wechat"] #buddy-list li.request { cursor: default; }
+[data-theme="wechat"] .request-actions .btn { padding: 4px 10px; font-size: 12px; }
 [data-theme="wechat"] #chat-subtitle { font-size: 12px; color: var(--text-2); margin-top: 1px; }
 [data-theme="wechat"] .profile-row .avatar { width: 56px; height: 56px; border-radius: 6px; font-size: 22px; }
 [data-theme="wechat"] input.status-input {
