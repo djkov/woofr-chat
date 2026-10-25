@@ -1,6 +1,6 @@
 # woofr.chat
 
-A retro-styled XMPP web client built with nostalgia for the 2000s (AIM, MSN Messenger, ICQ). No build step, no framework, one vendored dependency.
+An XMPP web client with OMEMO end-to-end encryption and two looks: a WeChat-style theme (the default) and the original retro theme built with nostalgia for the 2000s (AIM, MSN Messenger, ICQ). No build step, no framework, two vendored dependencies.
 
 ---
 
@@ -8,12 +8,12 @@ A retro-styled XMPP web client built with nostalgia for the 2000s (AIM, MSN Mess
 
 | Property | Value |
 |---|---|
-| Files | `index.html` (markup + CSS), `app.js` (all JS), `vendor/strophe.umd.min.js` |
-| Dependencies | [Strophe.js 1.6.2](https://www.npmjs.com/package/strophe.js/v/1.6.2) (vendored — no CDN) |
-| Protocol | XMPP over BOSH (XEP-0124) |
+| Files | `index.html` (markup), `styles.css` (both themes), `app.js` (UI + XMPP), `omemo.js` (encryption), `vendor/` |
+| Dependencies | [Strophe.js 1.6.2](https://www.npmjs.com/package/strophe.js/v/1.6.2), [libsignal-protocol-typescript 0.0.16](https://www.npmjs.com/package/@privacyresearch/libsignal-protocol-typescript) — both vendored, no CDN |
+| Protocol | XMPP over BOSH (XEP-0124); OMEMO (XEP-0384) for end-to-end encryption |
 | BOSH endpoint | `https://woofr.chat:5443/bosh` (hardcoded, not shown to users) |
 | Auth | SASL PLAIN (SCRAM-SHA-512 disabled due to Strophe 1.6.2 bug) |
-| Browser APIs | Web Audio API, Notifications API |
+| Browser APIs | Web Audio, Notifications, Web Crypto, IndexedDB (encrypted keys only), Web Locks |
 
 ---
 
@@ -60,9 +60,9 @@ The nginx config (`nginx.conf`) enforces:
 
 - `Cache-Control: no-store` — prevents PHI caching in browsers and proxies
 - `Strict-Transport-Security` — locks browsers to HTTPS for 2 years
-- `Content-Security-Policy` with `script-src 'self'` (no inline script, no CDNs) and `connect-src` locked to `https://woofr.chat:5443` only
+- `Content-Security-Policy` with `script-src 'self'` and `style-src 'self'` (no inline script or CSS, no eval, no CDNs) and `connect-src` locked to `https://woofr.chat:5443` only
 - `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy` / `-Resource-Policy: same-origin`
-- Only `/messenger/alpha/` and the two scripts it loads are served (`/messenger/alpha` redirects to add the trailing slash); everything else returns 404 — no directory listing, no docs exposed
+- Only `/messenger/alpha/` and the files it loads (`app.js`, `omemo.js`, `styles.css`, two vendored scripts) are served (`/messenger/alpha` redirects to add the trailing slash); everything else returns 404 — no directory listing, no docs exposed
 
 See `HIPAA.md` for the full compliance gap analysis and roadmap.
 
@@ -109,6 +109,25 @@ python3 -m http.server 8080
 
 ## Features
 
+### Themes
+
+- **WeChat** (default) — dark navigation rail, chat list with avatars, last-message previews, timestamps and red unread badges; green/white chat bubbles with centred time stamps. On phones: title bars on top, a Chats / Settings / Sign out tab bar at the bottom.
+- **Retro** — the original Windows 2000 / AIM look: title bar, buddy list, tabbed chat windows, `[12:34] nick: text` lines.
+- Switch on the sign-in screen or in **Settings**. Only the theme name is remembered (`localStorage`, key `woofr.theme`); it's applied before first paint.
+
+### End-to-end encryption (OMEMO)
+
+Messages are encrypted with **OMEMO** ([XEP-0384](https://xmpp.org/extensions/xep-0384.html), the `eu.siacs.conversations.axolotl` namespace), so they interoperate with Conversations, Monal, Gajim, Dino and Converse.js. The server only relays ciphertext.
+
+- **On by default, fails closed.** Every chat starts encrypted. If a contact has no OMEMO device, sending fails with an explanation (and the text goes back into the input box); nothing falls back to plaintext on its own. Turning encryption off is per chat, behind a confirmation, and the chat shows it (red *Not encrypted* toggle, open padlock, and each plaintext message is flagged).
+- **Priority messages** are encrypted too (the `<attention/>` element stays outside so the alarm still works). **Nudges** carry no content and are sent as before.
+- **Multi-device.** Messages are also encrypted for your own other OMEMO devices (e.g. Conversations on your phone).
+- **Trust: blind trust before verification** (like Conversations). New contacts' devices are trusted on first use; once you've *verified* one of a contact's devices, any new device of theirs stays *undecided* (not encrypted to) until you decide. A device whose identity key changes is **blocked** in both directions until you explicitly accept the new key.
+- **Encryption details** (`···` in the chat header, or *Keys* in retro): each device's fingerprint (same format Conversations shows), trust status, and Verify / Distrust / Accept-new-key actions. **Settings** shows this device's fingerprint and your other devices.
+- **Key storage.** Identity keys, prekeys and Signal sessions are kept in IndexedDB, **AES-256-GCM encrypted under a key derived from your password** (PBKDF2-SHA-256, 600k iterations), so your fingerprint survives reloads. Message text is never stored. If your password changes, the old keys can't be unlocked: the client makes new ones, retires the old device from your device list, and tells you.
+- **Shared computers:** *Settings → Remove this device's keys* deletes the keys from the browser and unpublishes the device.
+- One tab per account: a second tab with the same account gets no encryption (two tabs writing one ratchet state would corrupt it), and says so.
+
 ### Connection & Auth
 
 - Connects via **BOSH** (HTTP long-polling, no WebSocket)
@@ -120,7 +139,7 @@ python3 -m http.server 8080
 - **HTTPS only** — sign-in is disabled (with a warning) unless the page is a secure context (HTTPS, or `localhost` for development)
 - **Lock after 5 minutes** idle — the app is hidden behind a password prompt; the connection stays up. 5 wrong passwords signs you out
 - **Sign-out after 15 minutes** idle, even if locked
-- **Everything is wiped** on any session end — sign-out, timeout, failed unlock, or a dropped connection
+- **Everything is wiped** on any session end — sign-out, timeout, failed unlock, or a dropped connection. (The only thing left behind is the password-encrypted OMEMO key store, which never holds message text.)
 - The password field is cleared as soon as sign-in starts, and the password isn't kept in memory (unlock checks a PBKDF2 hash)
 
 See `HIPAA.md` for the reasoning.
@@ -137,7 +156,8 @@ See `HIPAA.md` for the reasoning.
 - **Tabbed chat windows** — one tab per conversation, closeable
 - **Enter** to send, **Shift+Enter** for newline
 - Basic text formatting toolbar (Bold, Italic) wraps selected text with `**` / `_` markers
-- Messages are displayed with timestamp and coloured nick (red for them, blue for you)
+- Messages show who sent them and when (bubbles in the WeChat theme; timestamp and coloured nick in retro), with a flag on anything that wasn't end-to-end encrypted
+- Messages that fail to send stay in the log marked *Not sent*, with the reason
 
 ---
 
@@ -145,6 +165,12 @@ See `HIPAA.md` for the reasoning.
 
 ### XEP-0124 — BOSH
 XMPP over HTTP long-polling. Handled entirely by Strophe.js.
+
+### XEP-0384 — OMEMO Encryption (with XEP-0163 PEP, XEP-0380 EME, XEP-0334 hints)
+`omemo.js`. Publishes this browser's device and bundle (100 one-time prekeys, refilled as they're used; signed prekey rotated weekly) with an `open` access model, fetches contacts' device lists and bundles, and encrypts each message with AES-128-GCM, the key + tag going to every recipient device through its Signal session. Outgoing messages carry an EME hint, a `store` hint, and a content-free fallback body.
+
+### XEP-0030 / XEP-0115 — Service Discovery / Entity Capabilities
+The client answers `disco#info` and advertises a caps hash in its presence. That's what tells the server to push contacts' OMEMO device-list changes (`devicelist+notify`).
 
 ### XEP-0224 — Attention
 
@@ -214,12 +240,14 @@ All sounds are synthesised via the **Web Audio API** — no audio files needed.
 
 - **SASL PLAIN only** — credentials sent base64-encoded; HTTPS is mandatory in production. SCRAM-SHA-1/SHA-256 support needs a Strophe plugin or library upgrade.
 - **No message history** — XEP-0313 (MAM) not implemented; chat log is session-only.
-- **No multi-user chat** — XEP-0045 (MUC) not implemented.
+- **No message carbons** — XEP-0280 not implemented, so messages you send from another device don't show up here (they *are* encrypted for your other devices, so those can read what you send from here).
+- **No multi-user chat** — XEP-0045 (MUC) not implemented, so no group OMEMO either.
+- **OMEMO library** — `libsignal-protocol-typescript` is a community TypeScript port of Signal's protocol, not Signal's own code, and hasn't had a public audit. Its PreKey receive path skips the identity check (a missing `await`); `omemo.js`'s key store refuses changed keys itself to close that gap. It is **GPL-3.0**: serving it to browsers is distribution, so the client as a whole needs to be GPL-compatible.
+- **Legacy OMEMO only** — the newer `urn:xmpp:omemo:2` namespace (OMEMO 0.8+) isn't supported; few clients ship it yet.
 - **No file transfer** — XEP-0096 / XEP-0234 not implemented.
 - **No message delivery receipts** — XEP-0184 not implemented.
 - **No typing indicators** — XEP-0085 (Chat State Notifications) not implemented.
 - **No vCard / avatars** — XEP-0054 / XEP-0084 not implemented.
-- **CSS is still inline** in `index.html` — it's why the CSP keeps `style-src 'unsafe-inline'`.
 - **No persistence** — roster additions, nudge rate-limit timestamps, and chat logs are all in-memory and lost on reload.
 
 ---
@@ -227,23 +255,32 @@ All sounds are synthesised via the **Web Audio API** — no audio files needed.
 ## Architecture
 
 ```
-index.html
-├── <style>          Inline CSS — Win2000 aesthetic, animations, component styles
-└── <body>           HTML — login, lock and app panels, buddy list, chat area (all in one window div)
+index.html           Markup only — login, lock and app panels, nav rail, buddy list, chat area, dialog
+styles.css           Shared layout, then [data-theme="retro"] and [data-theme="wechat"] rules
 
 app.js
+├── Theme            savedTheme / applyTheme / setTheme (runs before first paint)
 ├── State            conn, myJid, buddies{}, chatWindows{}, activeChat, nudgeTimestamps{}
-├── Auth             doLogin / onConnectStatus / onConnected
-├── Roster           onRoster / addBuddy / renderBuddyList
+├── Auth             doLogin (also opens the OMEMO vault) / onConnectStatus / onConnected
+├── Disco / caps     computeCapsVer / sendPresence / onDiscoInfo
+├── OMEMO glue       startOmemo / checkOmemoSupport / encryptionState / toggleEncryption
+├── Roster           onRoster / addBuddy / renderBuddyList (previews, unread badges)
 ├── Presence         onPresence
-├── Messaging        onMessage / sendMsg / appendMsg
-├── XEP-0224         sendNudge (rate-limited) / onAttention / sendPriorityMsg / appendPriorityMsg
+├── Messaging        onMessageStanza → handleMessage (ordered inbox, decrypts) / sendText (per-chat queue, encrypts) / appendMsg
+├── XEP-0224         sendNudge (rate-limited) / onAttention / priority messages
 ├── Alerts           startAlertLoop / stopAlertLoop / playAlertBeep / playNudgeSound / shakeWindow
 ├── Notifications    requestNotifPermission / notify / closeNotifications
+├── Dialogs          settings, encryption details, device trust actions
 ├── Inactivity       noteActivity / checkIdle / lockSession / doUnlock
 └── Teardown         endSession — the single exit path; wipes all PHI
 
+omemo.js
+├── Vault            password-encrypted IndexedDB record per account (openVault)
+└── Session          key generation, PEP device lists + bundles, encrypt / decrypt, trust, forget
+
 vendor/strophe.umd.min.js   Strophe.js 1.6.2 (+ its MIT licence alongside)
+vendor/libsignal.min.js     libsignal-protocol-typescript 0.0.16, bundled (+ libsignal-LICENSES.txt)
+vendor/libsignal-build/     The recipe that produced it (entry point, pinned lockfile)
 ```
 
 ---
@@ -251,6 +288,9 @@ vendor/strophe.umd.min.js   Strophe.js 1.6.2 (+ its MIT licence alongside)
 ## Development Notes
 
 - **Strophe.js 1.6.2 UMD build** is vendored as `vendor/strophe.umd.min.js` — the ESM `src/strophe.js` fails in non-module `<script>` tags. To update it: `npm pack strophe.js@<version>` (npm verifies the tarball's integrity), copy `package/dist/strophe.umd.min.js` and `package/LICENSE.txt` into `vendor/`.
-- **No inline JS, ever.** The CSP is `script-src 'self'`, so inline `<script>` blocks and `onclick=""` attributes are blocked. Attach handlers from `app.js`, and build DOM with `textContent` — never put JIDs, roster names or message text into `innerHTML`.
+- **libsignal** is vendored as one IIFE bundle (global `libsignal`). To rebuild or update it: in `vendor/libsignal-build/`, run `npm ci --ignore-scripts` then `npm run build`, which writes `vendor/libsignal.min.js`. It must stay free of `eval`/`new Function` (the CSP blocks them); the curve code is a pure-JS wasm2js build, so it is. Regenerate `vendor/libsignal-LICENSES.txt` if the dependency tree changes.
+- **No inline JS or CSS, ever.** The CSP is `script-src 'self'; style-src 'self'`, so inline `<script>`/`<style>` blocks and `onclick=""`/`style=""` attributes are blocked. Attach handlers from `app.js`, toggle visibility with the `hidden` attribute, and build DOM with `textContent` — never put JIDs, roster names or message text into `innerHTML`. (Setting `element.style.x` from JS is fine; the CSP doesn't restrict the CSSOM.)
+- **Themes:** shared layout goes at the top of `styles.css`; anything visual is scoped under `[data-theme="retro"]` or `[data-theme="wechat"]`. Put `t-retro` / `t-wechat` on markup that should only appear in one theme.
+- **OMEMO state** is only touched through `Omemo.Session`, whose jobs run one at a time and persist the ratchet before a message is sent or shown — never send a stanza built by `encrypt()` before that promise resolves.
 - SCRAM-SHA-512 is deleted from `conn.mechanisms` before `connect()` — the Strophe implementation sends a literal base64(`"false"`) as the client-final message, which fails auth on every server.
 - Incoming attention stanzas are detected with `getElementsByTagNameNS('urn:xmpp:attention:0', 'attention')` rather than `querySelector` — namespace-aware queries are required for XML stanzas and `querySelector` attribute matching is unreliable across browsers on XML documents.

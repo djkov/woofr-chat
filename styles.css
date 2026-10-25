@@ -1,0 +1,1202 @@
+/* woofr.chat styles.
+ *
+ * Three parts: layout shared by both themes, then each theme scoped by the
+ * data-theme attribute on <html> ("wechat" — the default — or "retro").
+ * Elements marked .t-wechat / .t-retro only show in that theme.
+ */
+
+/* ══ Layout (both themes) ═════════════════════════════════════════════════ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+[hidden] { display: none !important; }
+[data-theme="retro"] .t-wechat,
+[data-theme="wechat"] .t-retro { display: none !important; }
+
+html { height: 100%; }
+body { height: 100vh; height: 100dvh; overflow: hidden; }
+
+.window {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-body { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+.icon { width: 1em; height: 1em; fill: currentColor; display: inline-block; vertical-align: middle; flex-shrink: 0; }
+
+#login-panel, #lock-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+}
+#login-card, #lock-card { width: 340px; display: flex; flex-direction: column; gap: 6px; }
+.form-stack { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+.form-row   { display: flex; align-items: center; gap: 6px; }
+.button-row { display: flex; justify-content: flex-end; gap: 6px; padding: 0 2px; }
+.theme-row  { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+
+#app-layout { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+#nav-rail { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+.nav-spacer { flex: 1; }
+
+#buddy-panel { flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; }
+#buddy-list  { list-style: none; flex: 1; min-height: 0; overflow-y: auto; }
+#buddy-list li.buddy { display: flex; align-items: center; cursor: pointer; }
+.avatar-wrap { position: relative; flex-shrink: 0; display: flex; align-items: center; }
+.buddy-info  { flex: 1; min-width: 0; }
+.buddy-name, .buddy-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.add-buddy-row { display: flex; flex-shrink: 0; }
+.add-buddy-row input { flex: 1; }
+.buddy-footer { display: flex; justify-content: flex-end; gap: 4px; flex-shrink: 0; }
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+  font-weight: 600;
+  user-select: none;
+  background: #8c8c8c; /* overridden per contact from app.js */
+}
+
+#chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+#chat-header { display: flex; align-items: center; flex-shrink: 0; }
+#chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#chat-placeholder { flex: 1; display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; }
+.chat-tabs { display: flex; flex-shrink: 0; }
+#chat-windows { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.chat-window { display: none; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.chat-window.active { display: flex; }
+.chat-log { flex: 1; min-height: 0; overflow-y: auto; }
+.chat-input-area { display: flex; flex-direction: column; flex-shrink: 0; }
+.chat-toolbar { display: flex; align-items: center; }
+.toolbar-spacer { flex: 1; }
+.chat-input-row { display: flex; }
+textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit; }
+.send-col { display: flex; flex-direction: column; }
+
+.bubble { white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.pending, .msg-priority.pending { opacity: 0.55; }
+.priority-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal-window { display: flex; flex-direction: column; width: 560px; max-width: 100%; max-height: 100%; overflow: hidden; }
+.modal-titlebar { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.modal-body { overflow-y: auto; }
+.fingerprint { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; word-spacing: 0.25em; user-select: all; overflow-wrap: anywhere; }
+.device-list { display: flex; flex-direction: column; gap: 6px; }
+.device-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* XEP-0224 nudge */
+@keyframes nudge {
+  0%   { transform: translateX(0); }
+  10%  { transform: translateX(-8px) rotate(-1deg); }
+  20%  { transform: translateX(8px)  rotate(1deg); }
+  30%  { transform: translateX(-8px) rotate(-1deg); }
+  40%  { transform: translateX(8px)  rotate(1deg); }
+  50%  { transform: translateX(-6px); }
+  60%  { transform: translateX(6px); }
+  70%  { transform: translateX(-4px); }
+  80%  { transform: translateX(4px); }
+  90%  { transform: translateX(-2px); }
+  100% { transform: translateX(0); }
+}
+.nudging { animation: nudge 0.6s ease-in-out; }
+
+.mobile-back-btn { display: none; }
+
+/* Phones: master/detail — the buddy list and the chat take turns. */
+@media (max-width: 768px) {
+  #app-layout { position: relative; }
+  #buddy-panel { width: 100%; min-width: 0; position: absolute; inset: 0; z-index: 2; }
+  #chat-area { position: absolute; inset: 0; display: none; }
+  #app-layout.mobile-chat-open #buddy-panel { display: none; }
+  #app-layout.mobile-chat-open #chat-area { display: flex; }
+  .mobile-back-btn { display: flex; align-items: center; justify-content: center; }
+  #login-card, #lock-card { width: 100%; max-width: 340px; min-width: 0; padding: 0 12px; }
+  .form-row { flex-wrap: wrap; }
+  input[type=text], input[type=password], textarea.chat-input, select {
+    font-size: 16px; /* prevent iOS auto-zoom on focus */
+  }
+}
+
+
+/* ══ Retro theme (Windows 2000 / AIM) ═════════════════════════════════════ */
+[data-theme="retro"] body {
+  background: #008080;
+  font-family: "Tahoma", "MS Sans Serif", Arial, sans-serif;
+  font-size: 11px;
+  color: #000;
+}
+
+[data-theme="retro"] .window { background: #c0c0c0; }
+
+[data-theme="retro"] .title-bar {
+  background: linear-gradient(to right, #000080, #1084d0);
+  color: #fff;
+  font-weight: bold;
+  font-size: 12px;
+  padding: 3px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+  flex-shrink: 0;
+}
+[data-theme="retro"] .title-bar-buttons { display: flex; gap: 2px; }
+[data-theme="retro"] .title-btn {
+  width: 16px; height: 14px;
+  border: 1px solid;
+  border-color: #dfdfdf #808080 #808080 #dfdfdf;
+  background: #c0c0c0;
+  color: #000;
+  font-size: 9px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+}
+[data-theme="retro"] .title-btn-close { font-size: 11px; }
+[data-theme="retro"] .title-btn:active { border-color: #808080 #dfdfdf #dfdfdf #808080; }
+
+.alpha-badge {
+  background: #ff6600;
+  color: #fff;
+  font-size: 9px;
+  font-weight: bold;
+  padding: 1px 4px;
+  border: 1px solid #803300;
+  border-radius: 2px;
+  letter-spacing: 0.5px;
+  margin-left: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+[data-theme="retro"] .menubar {
+  background: #c0c0c0;
+  border-bottom: 1px solid #808080;
+  padding: 1px 4px;
+  font-size: 11px;
+  display: flex; gap: 8px;
+  flex-shrink: 0;
+}
+[data-theme="retro"] .menubar span { padding: 1px 4px; cursor: default; }
+[data-theme="retro"] .menubar span:hover { background: #000080; color: #fff; }
+
+[data-theme="retro"] #status-bar {
+  background: #c0c0c0;
+  border-top: 1px solid #808080;
+  box-shadow: 0 1px 0 #dfdfdf inset;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: #444;
+  min-height: 16px;
+  flex-shrink: 0;
+}
+[data-theme="retro"] #status-bar.error { color: #cc0000; font-weight: bold; }
+[data-theme="retro"] #status-bar.ok    { color: #006600; font-weight: bold; }
+
+[data-theme="retro"] #login-panel,
+[data-theme="retro"] #lock-panel { background: #c0c0c0; }
+
+[data-theme="retro"] .login-logo {
+  text-align: center;
+  padding: 10px 0;
+  font-size: 22px;
+  font-weight: bold;
+  color: #000080;
+  text-shadow: 1px 1px 0 #fff;
+  letter-spacing: -1px;
+}
+[data-theme="retro"] .login-logo .logo-dot { color: #ff6600; }
+
+[data-theme="retro"] .login-warning {
+  background: #fff0f0;
+  border: 2px solid #cc0000;
+  color: #cc0000;
+  font-weight: bold;
+  padding: 3px 6px;
+  text-align: center;
+}
+
+[data-theme="retro"] .lock-error { color: #cc0000; font-weight: bold; min-height: 1.2em; }
+
+[data-theme="retro"] .form-row label { width: 90px; text-align: right; font-size: 11px; }
+[data-theme="retro"] .theme-row { padding: 0 2px; color: #444; }
+
+[data-theme="retro"] input[type=text],
+[data-theme="retro"] input[type=password],
+[data-theme="retro"] select {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid;
+  border-color: #808080 #dfdfdf #dfdfdf #808080;
+  background: #fff;
+  padding: 2px 3px;
+  font-size: 11px;
+  font-family: inherit;
+  outline: none;
+}
+[data-theme="retro"] select { flex: 0 0 auto; }
+[data-theme="retro"] input[type=text]:focus,
+[data-theme="retro"] input[type=password]:focus {
+  border-color: #000080 #dfdfdf #dfdfdf #000080;
+}
+
+[data-theme="retro"] .btn {
+  border: 2px solid;
+  border-color: #dfdfdf #808080 #808080 #dfdfdf;
+  background: #c0c0c0;
+  padding: 3px 12px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 1px 1px 0 #fff inset;
+}
+[data-theme="retro"] .btn:active {
+  border-color: #808080 #dfdfdf #dfdfdf #808080;
+  box-shadow: none;
+  padding: 4px 11px 2px 13px;
+}
+[data-theme="retro"] .btn:focus { outline: 1px dotted #000; outline-offset: -4px; }
+[data-theme="retro"] .btn.primary { font-weight: bold; }
+[data-theme="retro"] .btn.danger  { color: #cc0000; }
+
+/* Buddy list */
+[data-theme="retro"] #nav-rail { display: none; }
+[data-theme="retro"] .avatar { display: none; }
+
+[data-theme="retro"] #buddy-panel {
+  width: 220px;
+  min-width: 180px;
+  border-right: 2px solid #808080;
+  box-shadow: -1px 0 0 #dfdfdf inset;
+  background: #c0c0c0;
+}
+
+[data-theme="retro"] .buddy-header {
+  background: linear-gradient(to right, #000080, #1084d0);
+  color: #fff;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: bold;
+  display: flex; justify-content: space-between;
+  flex-shrink: 0;
+}
+
+[data-theme="retro"] #my-status {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px;
+  background: #d4d0c8;
+  border-bottom: 1px solid #808080;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+[data-theme="retro"] .my-status-label { margin-left: auto; color: #666; }
+
+.status-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 1px solid #666;
+  background: #33cc33;
+  flex-shrink: 0;
+}
+.status-dot.away    { background: #ffcc00; }
+.status-dot.busy    { background: #e04848; }
+.status-dot.offline { background: #aaa; }
+
+[data-theme="retro"] #buddy-list {
+  background: #fff;
+  border: 1px solid #808080;
+  margin: 2px 4px;
+}
+
+[data-theme="retro"] #buddy-list li {
+  padding: 2px 6px;
+  gap: 6px;
+  border-bottom: 1px dotted #e0e0e0;
+  font-size: 11px;
+}
+[data-theme="retro"] #buddy-list li.buddy:hover,
+[data-theme="retro"] #buddy-list li.buddy.active { background: #000080; color: #fff; }
+[data-theme="retro"] #buddy-list li.buddy:hover .status-dot { border-color: #fff; }
+[data-theme="retro"] .buddy-info { display: flex; align-items: center; gap: 6px; }
+[data-theme="retro"] .buddy-line1,
+[data-theme="retro"] .buddy-line2 { display: contents; }
+[data-theme="retro"] .buddy-time,
+[data-theme="retro"] .buddy-preview { display: none; }
+[data-theme="retro"] .unread-badge { margin-left: auto; color: #cc0000; font-weight: bold; }
+[data-theme="retro"] .unread-badge::before { content: "["; }
+[data-theme="retro"] .unread-badge::after  { content: "]"; }
+[data-theme="retro"] li.buddy:hover .unread-badge,
+[data-theme="retro"] li.buddy.active .unread-badge { color: #ffcc00; }
+
+[data-theme="retro"] #buddy-list .group-header {
+  background: #d4d0c8;
+  font-weight: bold;
+  font-size: 10px;
+  padding: 1px 4px;
+  cursor: default;
+  color: #000;
+  border-bottom: 1px solid #808080;
+}
+
+[data-theme="retro"] .add-buddy-row { gap: 4px; padding: 4px; }
+
+[data-theme="retro"] .separator {
+  border: none;
+  border-top: 1px solid #808080;
+  border-bottom: 1px solid #fff;
+  margin: 4px 0;
+  flex-shrink: 0;
+}
+[data-theme="retro"] .buddy-footer { padding: 4px; }
+
+/* Chat */
+[data-theme="retro"] #chat-header { display: none; }
+
+[data-theme="retro"] #chat-placeholder { color: #888; font-style: italic; background: #fff; }
+
+[data-theme="retro"] .chat-tabs {
+  border-bottom: 2px solid #808080;
+  background: #c0c0c0;
+  gap: 2px;
+  padding: 2px 2px 0;
+}
+[data-theme="retro"] .chat-tab {
+  border: 1px solid;
+  border-color: #dfdfdf #808080 #c0c0c0 #dfdfdf;
+  background: #c0c0c0;
+  padding: 2px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  color: #555;
+}
+[data-theme="retro"] .chat-tab.active {
+  background: #fff;
+  border-bottom-color: #fff;
+  color: #000;
+  font-weight: bold;
+  padding-bottom: 3px;
+  margin-bottom: -2px;
+}
+[data-theme="retro"] .chat-tab.has-unread { color: #cc0000; font-weight: bold; }
+[data-theme="retro"] .chat-tab .close-tab { margin-left: 6px; color: #888; font-size: 9px; }
+[data-theme="retro"] .chat-tab:hover .close-tab { color: #cc0000; }
+
+[data-theme="retro"] .chat-window { background: #fff; }
+
+[data-theme="retro"] .chat-log {
+  padding: 4px;
+  font-size: 11px;
+  border-bottom: 1px solid #c0c0c0;
+  line-height: 1.5;
+}
+
+/* "[12:34] nick: text" on one line */
+[data-theme="retro"] .msg-main,
+[data-theme="retro"] .msg-meta,
+[data-theme="retro"] .bubble { display: inline; }
+[data-theme="retro"] .msg-timesep { display: none; }
+[data-theme="retro"] .msg-them .nick { color: #cc0000; font-weight: bold; }
+[data-theme="retro"] .msg-me .nick   { color: #000080; font-weight: bold; }
+[data-theme="retro"] .msg-system     { color: #888; font-style: italic; font-size: 10px; }
+[data-theme="retro"] .msg-time       { color: #aaa; font-size: 9px; }
+[data-theme="retro"] .msg-lock       { font-size: 9px; }
+[data-theme="retro"] .msg-flag       { margin-left: 6px; font-size: 9px; font-weight: bold; }
+[data-theme="retro"] .msg-flag.plain     { color: #cc6600; }
+[data-theme="retro"] .msg-flag.untrusted { color: #806000; }
+[data-theme="retro"] .msg-failed     { display: block; color: #cc0000; font-weight: bold; font-size: 10px; }
+[data-theme="retro"] .msg.failed .bubble { text-decoration: line-through; color: #888; }
+[data-theme="retro"] .msg-warning {
+  background: #ffffcc;
+  border: 1px solid #c0a000;
+  color: #604800;
+  font-size: 10px;
+  padding: 2px 6px;
+  margin: 3px 0;
+}
+
+[data-theme="retro"] .chat-input-area {
+  gap: 2px;
+  padding: 4px;
+  background: #f0f0f0;
+  border-top: 1px solid #dfdfdf;
+}
+
+[data-theme="retro"] .chat-toolbar {
+  gap: 3px; font-size: 10px;
+  border-bottom: 1px solid #d0d0d0;
+  padding-bottom: 2px;
+}
+[data-theme="retro"] .chat-toolbar button {
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  padding: 1px 3px;
+  font-family: "Times New Roman", serif;
+}
+[data-theme="retro"] .chat-toolbar button:hover { border-color: #808080; background: #c0c0c0; }
+[data-theme="retro"] .smiley-btn { font-size: 13px; }
+
+[data-theme="retro"] .chat-toolbar .enc-btn,
+[data-theme="retro"] .chat-toolbar .keys-btn {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: bold;
+  display: flex; align-items: center; gap: 3px;
+}
+[data-theme="retro"] .enc-btn.on      { color: #006600; }
+[data-theme="retro"] .enc-btn.no-omemo { color: #996600; }
+[data-theme="retro"] .enc-btn.off     { color: #cc0000; }
+
+[data-theme="retro"] .chat-input-row { gap: 4px; }
+[data-theme="retro"] textarea.chat-input {
+  border: 1px solid;
+  border-color: #808080 #dfdfdf #dfdfdf #808080;
+  font-size: 11px;
+  padding: 2px;
+  height: 44px;
+}
+[data-theme="retro"] textarea.chat-input:focus { border-color: #000080 #dfdfdf #dfdfdf #000080; }
+[data-theme="retro"] .send-col { gap: 2px; }
+
+[data-theme="retro"] ::-webkit-scrollbar { width: 16px; }
+[data-theme="retro"] ::-webkit-scrollbar-track { background: #c0c0c0; }
+[data-theme="retro"] ::-webkit-scrollbar-thumb {
+  background: #c0c0c0;
+  border: 1px solid;
+  border-color: #dfdfdf #808080 #808080 #dfdfdf;
+  box-shadow: 1px 1px 0 #fff inset;
+}
+
+[data-theme="retro"] .groupbox {
+  border: 1px solid #808080;
+  box-shadow: 1px 1px 0 #fff;
+  padding: 6px;
+  margin: 4px 0;
+  position: relative;
+  min-width: 0;
+}
+[data-theme="retro"] .groupbox legend { font-size: 10px; padding: 0 3px; color: #444; }
+
+[data-theme="retro"] .nudge-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: inherit;
+  color: #800000;
+  font-weight: bold;
+}
+[data-theme="retro"] .nudge-btn:active { border-color: #808080 #dfdfdf #dfdfdf #808080; }
+
+[data-theme="retro"] .msg-nudge-error {
+  background: #fff0f0;
+  border: 2px solid #cc0000;
+  color: #cc0000;
+  font-weight: bold;
+  font-size: 11px;
+  padding: 3px 6px;
+  margin: 3px 0;
+  text-align: center;
+}
+
+[data-theme="retro"] .msg-nudge {
+  color: #800000;
+  font-weight: bold;
+  font-style: italic;
+  font-size: 10px;
+  text-align: center;
+  padding: 2px 0;
+  border-top: 1px dashed #ffaaaa;
+  border-bottom: 1px dashed #ffaaaa;
+  margin: 2px 0;
+}
+
+/* Priority message */
+[data-theme="retro"] .msg-priority {
+  background: #ffffcc;
+  border: 2px solid #cc0000;
+  padding: 4px 6px;
+  margin: 4px 0;
+  font-size: 11px;
+}
+[data-theme="retro"] .msg-priority.read { border-color: #888; background: #f5f5f5; }
+[data-theme="retro"] .msg-priority .priority-header {
+  color: #cc0000;
+  font-weight: bold;
+  font-size: 10px;
+  margin-bottom: 3px;
+  display: flex; align-items: center; gap: 6px;
+}
+[data-theme="retro"] .msg-priority .priority-header > span:first-child { flex: 1; }
+[data-theme="retro"] .msg-priority .priority-body { color: #000; font-weight: bold; }
+.msg-priority .priority-ack { margin-top: 4px; display: flex; justify-content: flex-end; }
+
+[data-theme="retro"] .priority-ack-btn {
+  border: 2px solid;
+  border-color: #dfdfdf #808080 #808080 #dfdfdf;
+  background: #c0c0c0;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-family: inherit;
+  cursor: pointer;
+  font-weight: bold;
+  color: #cc0000;
+}
+[data-theme="retro"] .priority-ack-btn:active   { border-color: #808080 #dfdfdf #dfdfdf #808080; }
+[data-theme="retro"] .priority-ack-btn:disabled { color: #888; cursor: default; }
+
+[data-theme="retro"] .priority-send-btn {
+  border: 2px solid;
+  border-color: #dfdfdf #808080 #808080 #dfdfdf;
+  background: #ffeeee;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  font-weight: bold;
+  color: #cc0000;
+}
+[data-theme="retro"] .priority-send-btn:active { border-color: #808080 #dfdfdf #dfdfdf #808080; padding: 4px 7px 2px 9px; }
+
+[data-theme="retro"] .mobile-back-btn {
+  border: 2px solid;
+  border-color: #dfdfdf #808080 #808080 #dfdfdf;
+  background: #c0c0c0;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: bold;
+  cursor: pointer;
+  flex: 1;
+}
+[data-theme="retro"] .mobile-back-btn:active { border-color: #808080 #dfdfdf #dfdfdf #808080; }
+
+/* Dialog */
+[data-theme="retro"] .modal-backdrop { background: rgba(0, 0, 0, 0.25); }
+[data-theme="retro"] .modal-window {
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #dfdfdf #404040 #404040 #dfdfdf;
+  box-shadow: 1px 1px 0 #808080 inset, 2px 2px 6px rgba(0, 0, 0, 0.4);
+}
+[data-theme="retro"] .modal-titlebar {
+  background: linear-gradient(to right, #000080, #1084d0);
+  color: #fff;
+  font-weight: bold;
+  font-size: 12px;
+  padding: 3px 4px 3px 6px;
+}
+[data-theme="retro"] .modal-body { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+[data-theme="retro"] .modal-body p { line-height: 1.4; }
+[data-theme="retro"] .modal-section {
+  border: 1px solid #808080;
+  box-shadow: 1px 1px 0 #fff;
+  padding: 6px;
+  display: flex; flex-direction: column; gap: 5px;
+}
+[data-theme="retro"] .modal-section h3 { font-size: 11px; color: #000080; }
+[data-theme="retro"] .device { background: #fff; border: 1px solid #808080; padding: 4px 6px; display: flex; flex-direction: column; gap: 3px; }
+[data-theme="retro"] .fingerprint { font-size: 11px; }
+[data-theme="retro"] .trust-badge { font-weight: bold; margin-left: 6px; }
+[data-theme="retro"] .trust-verified   { color: #006600; }
+[data-theme="retro"] .trust-blind      { color: #444; }
+[data-theme="retro"] .trust-undecided,
+[data-theme="retro"] .trust-unknown    { color: #996600; }
+[data-theme="retro"] .trust-distrusted { color: #cc0000; }
+[data-theme="retro"] .device-inactive  { color: #888; margin-left: 6px; }
+[data-theme="retro"] .device-warn, [data-theme="retro"] .enc-warn { color: #cc0000; font-weight: bold; }
+[data-theme="retro"] .muted { color: #666; }
+
+@media (max-width: 768px) {
+  [data-theme="retro"] body { font-size: 13px; }
+  [data-theme="retro"] .title-bar { padding: 6px 8px; }
+  [data-theme="retro"] .menubar { display: none; } /* decorative, not functional — just eats space on small screens */
+  [data-theme="retro"] .form-row label { width: auto; text-align: left; }
+  [data-theme="retro"] .btn, [data-theme="retro"] .btn.primary { padding: 8px 14px; }
+  [data-theme="retro"] #buddy-panel { width: 100%; min-width: 0; border-right: none; }
+  [data-theme="retro"] #chat-header { display: flex; }
+  [data-theme="retro"] #chat-title,
+  [data-theme="retro"] #btn-chat-security { display: none; }
+  [data-theme="retro"] #buddy-list li { padding: 10px 10px; min-height: 24px; }
+  [data-theme="retro"] .add-buddy-row { padding: 8px; }
+  [data-theme="retro"] .add-buddy-row input, [data-theme="retro"] .add-buddy-row button { font-size: 16px; padding: 8px; }
+  [data-theme="retro"] .chat-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  [data-theme="retro"] .chat-tab { padding: 8px 12px; font-size: 13px; }
+  [data-theme="retro"] .chat-toolbar { flex-wrap: wrap; }
+  [data-theme="retro"] .chat-toolbar button { padding: 6px 10px; }
+  [data-theme="retro"] .nudge-btn, [data-theme="retro"] .priority-send-btn { padding: 6px 10px; font-size: 12px; }
+  [data-theme="retro"] textarea.chat-input { height: 60px; }
+  [data-theme="retro"] .send-col .btn { padding: 10px 14px; }
+}
+
+
+/* ══ WeChat theme ═════════════════════════════════════════════════════════ */
+[data-theme="wechat"] {
+  --green:       #07c160;
+  --green-dark:  #06ad56;
+  --bubble-me:   #95ec69;
+  --bubble-them: #ffffff;
+  --rail:        #2e2e2e;
+  --list:        #ebebeb;
+  --list-hover:  #dedede;
+  --list-active: #cfcfcf;
+  --chat-bg:     #f5f5f5;
+  --line:        #e2e2e2;
+  --text:        #191919;
+  --text-2:      #7f7f7f;
+  --text-3:      #b2b2b2;
+  --red:         #fa5151;
+  --orange:      #fa9d3b;
+}
+
+[data-theme="wechat"] body {
+  background: var(--chat-bg);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-theme="wechat"] .title-bar,
+[data-theme="wechat"] .menubar,
+[data-theme="wechat"] #my-status,
+[data-theme="wechat"] .separator,
+[data-theme="wechat"] .buddy-footer,
+[data-theme="wechat"] .chat-tabs,
+[data-theme="wechat"] .keys-btn,
+[data-theme="wechat"] .clear-btn,
+[data-theme="wechat"] .toolbar-spacer,
+[data-theme="wechat"] .msg-meta { display: none !important; }
+
+[data-theme="wechat"] button { font-family: inherit; }
+
+[data-theme="wechat"] #status-bar {
+  flex-shrink: 0;
+  min-height: 22px;
+  padding: 3px 12px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--chat-bg);
+  border-top: 1px solid var(--line);
+}
+[data-theme="wechat"] #status-bar.error { color: var(--red); }
+[data-theme="wechat"] #status-bar.ok    { color: var(--green-dark); }
+
+/* Buttons and inputs (WeUI style) */
+[data-theme="wechat"] .btn {
+  border: none;
+  border-radius: 4px;
+  background: #f2f2f2;
+  color: var(--text);
+  padding: 7px 18px;
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1.3;
+}
+[data-theme="wechat"] .btn:hover   { background: #e6e6e6; }
+[data-theme="wechat"] .btn:active  { background: #d9d9d9; }
+[data-theme="wechat"] .btn:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+[data-theme="wechat"] .btn.primary { background: var(--green); color: #fff; font-weight: 500; }
+[data-theme="wechat"] .btn.primary:hover  { background: var(--green-dark); }
+[data-theme="wechat"] .btn.primary:disabled { background: #9ed8b5; cursor: default; }
+[data-theme="wechat"] .btn.danger  { color: var(--red); }
+
+[data-theme="wechat"] input[type=text],
+[data-theme="wechat"] input[type=password] {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  padding: 10px 0;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--text);
+  outline: none;
+  border-radius: 0;
+}
+[data-theme="wechat"] input[type=text]:focus,
+[data-theme="wechat"] input[type=password]:focus { border-bottom-color: var(--green); }
+
+[data-theme="wechat"] select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: #f2f2f2;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+
+/* Sign-in and lock screens */
+[data-theme="wechat"] #login-panel,
+[data-theme="wechat"] #lock-panel { background: #ededed; padding: 24px 16px; }
+
+[data-theme="wechat"] #login-card,
+[data-theme="wechat"] #lock-card {
+  width: 360px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 32px 32px 24px;
+  gap: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="wechat"] .login-mark {
+  align-self: center;
+  width: 64px; height: 64px;
+  border-radius: 16px;
+  background: var(--green);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 38px;
+}
+
+[data-theme="wechat"] .login-logo {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  margin-top: -6px;
+}
+[data-theme="wechat"] .login-logo .logo-dot { color: var(--green); }
+[data-theme="wechat"] .alpha-badge { background: var(--orange); border: none; border-radius: 3px; font-weight: 600; }
+
+[data-theme="wechat"] .groupbox { border: none; min-width: 0; }
+[data-theme="wechat"] .groupbox legend { display: none; }
+[data-theme="wechat"] .form-stack { gap: 14px; margin: 0; }
+[data-theme="wechat"] .form-row { flex-direction: column; align-items: stretch; gap: 0; }
+[data-theme="wechat"] .form-row label { font-size: 12px; color: var(--text-2); }
+[data-theme="wechat"] #lock-msg { color: var(--text-2); font-size: 13px; line-height: 1.5; }
+[data-theme="wechat"] #lock-jid { font-size: 15px; font-weight: 500; padding: 4px 0; }
+
+[data-theme="wechat"] .login-warning {
+  background: #fff1f0;
+  color: var(--red);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 13px;
+  text-align: center;
+}
+[data-theme="wechat"] .lock-error { color: var(--red); font-size: 13px; min-height: 1.2em; }
+
+[data-theme="wechat"] .button-row { flex-direction: column; gap: 8px; padding: 0; }
+[data-theme="wechat"] .button-row .btn { width: 100%; padding: 10px; font-size: 15px; }
+[data-theme="wechat"] .button-row .btn:not(.primary) { background: transparent; color: var(--text-2); }
+[data-theme="wechat"] .button-row .btn:not(.primary):hover { background: #f5f5f5; }
+
+[data-theme="wechat"] .theme-row { justify-content: center; font-size: 12px; color: var(--text-3); }
+
+/* Navigation rail */
+[data-theme="wechat"] #nav-rail {
+  width: 60px;
+  background: var(--rail);
+  padding: 28px 0 16px;
+  gap: 8px;
+}
+[data-theme="wechat"] #nav-avatar .avatar { width: 36px; height: 36px; border-radius: 4px; font-size: 15px; margin-bottom: 18px; }
+[data-theme="wechat"] .nav-btn {
+  width: 44px; height: 44px;
+  border: none;
+  background: transparent;
+  color: #9a9a9a;
+  font-size: 24px;
+  cursor: pointer;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+}
+[data-theme="wechat"] .nav-btn:hover  { color: #d0d0d0; }
+[data-theme="wechat"] .nav-btn.active { color: var(--green); }
+[data-theme="wechat"] .nav-label { display: none; }
+
+/* Chat list */
+[data-theme="wechat"] #buddy-panel {
+  width: 260px;
+  background: var(--list);
+  border-right: 1px solid #d6d6d6;
+}
+
+[data-theme="wechat"] .buddy-header { display: none; order: -2; }
+[data-theme="wechat"] .add-buddy-row {
+  order: -1;
+  padding: 24px 12px 12px;
+  gap: 8px;
+  align-items: center;
+}
+[data-theme="wechat"] .add-buddy-row input {
+  background: #e2e2e2;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+[data-theme="wechat"] .add-buddy-row input:focus { background: #fff; }
+[data-theme="wechat"] .add-buddy-row .btn {
+  width: 28px; height: 28px;
+  padding: 0;
+  background: #e2e2e2;
+  color: #606060;
+  font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+}
+[data-theme="wechat"] .add-buddy-row .btn:hover { background: #d4d4d4; }
+
+[data-theme="wechat"] #buddy-list .group-header {
+  padding: 10px 12px 4px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: default;
+}
+[data-theme="wechat"] .group-caret { display: none; }
+
+[data-theme="wechat"] #buddy-list li.buddy {
+  gap: 10px;
+  padding: 12px;
+  height: 64px;
+}
+[data-theme="wechat"] #buddy-list li.buddy:hover  { background: var(--list-hover); }
+[data-theme="wechat"] #buddy-list li.buddy.active { background: var(--list-active); }
+
+[data-theme="wechat"] li.buddy .avatar { width: 40px; height: 40px; border-radius: 4px; font-size: 17px; }
+[data-theme="wechat"] li.buddy .status-dot {
+  position: absolute;
+  right: -3px; bottom: -3px;
+  width: 11px; height: 11px;
+  border: 2px solid var(--list);
+}
+[data-theme="wechat"] li.buddy:hover .status-dot  { border-color: var(--list-hover); }
+[data-theme="wechat"] li.buddy.active .status-dot { border-color: var(--list-active); }
+[data-theme="wechat"] .status-dot         { background: var(--green); }
+[data-theme="wechat"] .status-dot.offline { display: none; }
+
+[data-theme="wechat"] .buddy-info { display: flex; flex-direction: column; gap: 4px; }
+[data-theme="wechat"] .buddy-line1,
+[data-theme="wechat"] .buddy-line2 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+[data-theme="wechat"] .buddy-name { flex: 1; font-size: 14px; }
+[data-theme="wechat"] .buddy-time { font-size: 11px; color: var(--text-3); flex-shrink: 0; }
+[data-theme="wechat"] .buddy-preview { flex: 1; font-size: 12px; color: var(--text-3); }
+[data-theme="wechat"] .unread-badge {
+  flex-shrink: 0;
+  min-width: 18px; height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--red);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* Chat */
+[data-theme="wechat"] #chat-area { background: var(--chat-bg); }
+[data-theme="wechat"] #chat-area:not(.has-chat) #chat-header { display: none; }
+[data-theme="wechat"] #chat-header {
+  height: 60px;
+  padding: 0 12px 0 24px;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+[data-theme="wechat"] #chat-title { font-size: 17px; font-weight: 500; }
+[data-theme="wechat"] #chat-title .title-lock { color: var(--green); font-size: 13px; margin-left: 6px; vertical-align: 1px; }
+[data-theme="wechat"] #chat-title .title-lock.off { color: var(--orange); }
+[data-theme="wechat"] .chat-header-btn,
+[data-theme="wechat"] .mobile-back-btn {
+  border: none;
+  background: transparent;
+  color: #4c4c4c;
+  width: 36px; height: 36px;
+  border-radius: 4px;
+  font-size: 22px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+[data-theme="wechat"] .chat-header-btn:hover { background: #e6e6e6; }
+[data-theme="wechat"] .mobile-back-btn { display: none; }
+
+[data-theme="wechat"] #chat-placeholder { color: var(--text-3); font-size: 13px; }
+[data-theme="wechat"] .placeholder-mark { font-size: 96px; color: #e1e1e1; }
+
+[data-theme="wechat"] .chat-log { padding: 16px 24px 8px; }
+
+[data-theme="wechat"] .msg { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 14px; }
+[data-theme="wechat"] .msg-me { flex-direction: row-reverse; }
+[data-theme="wechat"] .msg .avatar { width: 36px; height: 36px; border-radius: 4px; font-size: 15px; }
+[data-theme="wechat"] .msg-main {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  max-width: min(68%, 560px);
+  min-width: 0;
+}
+[data-theme="wechat"] .msg-me .msg-main { align-items: flex-end; }
+[data-theme="wechat"] .bubble {
+  position: relative;
+  padding: 9px 12px;
+  border-radius: 4px;
+  background: var(--bubble-them);
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 100%;
+  user-select: text;
+}
+[data-theme="wechat"] .msg-me .bubble { background: var(--bubble-me); }
+/* the little tail pointing at the avatar */
+[data-theme="wechat"] .bubble::before {
+  content: "";
+  position: absolute;
+  top: 13px;
+  left: -5px;
+  border: 5px solid transparent;
+  border-left: 0;
+  border-right-color: var(--bubble-them);
+}
+[data-theme="wechat"] .msg-me .bubble::before {
+  left: auto;
+  right: -5px;
+  border: 5px solid transparent;
+  border-right: 0;
+  border-left-color: var(--bubble-me);
+}
+[data-theme="wechat"] .msg-lock { display: none; }
+[data-theme="wechat"] .msg-flag { font-size: 11px; }
+[data-theme="wechat"] .msg-flag.plain     { color: var(--orange); }
+[data-theme="wechat"] .msg-flag.untrusted { color: var(--orange); }
+[data-theme="wechat"] .msg-failed { font-size: 12px; color: var(--red); }
+[data-theme="wechat"] .msg.failed .bubble { opacity: 0.6; }
+
+[data-theme="wechat"] .msg-timesep,
+[data-theme="wechat"] .msg-system {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-3);
+  margin: 6px 0 14px;
+}
+[data-theme="wechat"] .msg-warning,
+[data-theme="wechat"] .msg-nudge,
+[data-theme="wechat"] .msg-nudge-error {
+  width: fit-content;
+  max-width: 85%;
+  margin: 6px auto 14px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.5;
+}
+[data-theme="wechat"] .msg-warning     { background: #fdf3e2; color: #9a6200; }
+[data-theme="wechat"] .msg-nudge       { background: #dadada; color: #fff; }
+[data-theme="wechat"] .msg-nudge-error { background: #fff1f0; color: var(--red); }
+
+[data-theme="wechat"] .msg-priority {
+  margin: 6px auto 14px;
+  max-width: 520px;
+  background: #fff;
+  border: 1px solid var(--red);
+  border-left: 4px solid var(--red);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+[data-theme="wechat"] .msg-priority.read { border-color: var(--line); border-left-color: var(--text-3); }
+[data-theme="wechat"] .priority-header {
+  display: flex; gap: 8px; align-items: baseline;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+[data-theme="wechat"] .msg-priority.read .priority-header { color: var(--text-2); }
+[data-theme="wechat"] .priority-header .msg-time { color: var(--text-3); font-weight: 400; margin-left: auto; }
+[data-theme="wechat"] .priority-body { font-size: 14px; font-weight: 500; line-height: 1.5; }
+[data-theme="wechat"] .priority-ack-btn {
+  border: none;
+  border-radius: 4px;
+  background: var(--red);
+  color: #fff;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+[data-theme="wechat"] .priority-ack-btn:disabled { background: #f2f2f2; color: var(--text-3); cursor: default; }
+
+[data-theme="wechat"] .chat-input-area {
+  border-top: 1px solid var(--line);
+  padding: 6px 16px 12px;
+  gap: 2px;
+}
+[data-theme="wechat"] .chat-toolbar { gap: 2px; }
+[data-theme="wechat"] .chat-toolbar button {
+  border: none;
+  background: transparent;
+  color: #4c4c4c;
+  height: 30px;
+  min-width: 30px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+}
+[data-theme="wechat"] .chat-toolbar button:hover { background: #e6e6e6; }
+[data-theme="wechat"] .chat-toolbar .lbl { display: none; }
+[data-theme="wechat"] .chat-toolbar .enc-btn { margin-left: auto; font-size: 12px; padding: 0 8px; }
+[data-theme="wechat"] .enc-btn .icon { font-size: 15px; }
+[data-theme="wechat"] .enc-btn.on       { color: var(--green-dark); }
+[data-theme="wechat"] .enc-btn.no-omemo { color: #c27c0e; }
+[data-theme="wechat"] .enc-btn.off      { color: var(--red); }
+
+[data-theme="wechat"] .chat-input-row { flex-direction: column; gap: 6px; }
+[data-theme="wechat"] textarea.chat-input {
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.5;
+  height: 76px;
+  padding: 4px 4px;
+  color: var(--text);
+}
+[data-theme="wechat"] .send-col { flex-direction: row; justify-content: flex-end; }
+[data-theme="wechat"] .send-btn.btn.primary {
+  background: #e9e9e9;
+  color: var(--green-dark);
+  padding: 6px 26px;
+  font-size: 14px;
+}
+[data-theme="wechat"] .send-btn.btn.primary:hover { background: #d2d2d2; }
+
+[data-theme="wechat"] ::-webkit-scrollbar { width: 8px; }
+[data-theme="wechat"] ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.15); border-radius: 4px; }
+[data-theme="wechat"] ::-webkit-scrollbar-track { background: transparent; }
+
+/* Dialog */
+[data-theme="wechat"] .modal-backdrop { background: rgba(0, 0, 0, 0.45); }
+[data-theme="wechat"] .modal-window {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+[data-theme="wechat"] .modal-titlebar { padding: 16px 12px 8px 24px; font-size: 17px; font-weight: 600; }
+[data-theme="wechat"] .modal-close {
+  border: none; background: transparent; color: var(--text-2);
+  width: 32px; height: 32px; border-radius: 4px; font-size: 14px; cursor: pointer;
+}
+[data-theme="wechat"] .modal-close:hover { background: #f2f2f2; }
+[data-theme="wechat"] .modal-body { padding: 8px 24px 24px; display: flex; flex-direction: column; gap: 18px; }
+[data-theme="wechat"] .modal-body p { line-height: 1.55; font-size: 13px; }
+[data-theme="wechat"] .modal-section { display: flex; flex-direction: column; gap: 8px; }
+[data-theme="wechat"] .modal-section h3 { font-size: 13px; font-weight: 600; color: var(--text-2); }
+[data-theme="wechat"] .device {
+  background: #f7f7f7;
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+[data-theme="wechat"] .device .btn { padding: 5px 12px; font-size: 13px; background: #ececec; }
+[data-theme="wechat"] .device .btn.primary { background: var(--green); }
+[data-theme="wechat"] .fingerprint { font-size: 12.5px; color: #333; }
+[data-theme="wechat"] .trust-badge {
+  font-size: 11px; padding: 1px 6px; border-radius: 3px; margin-left: 8px; vertical-align: 1px;
+}
+[data-theme="wechat"] .trust-verified   { background: #e6f8ee; color: var(--green-dark); }
+[data-theme="wechat"] .trust-blind      { background: #ededed; color: var(--text-2); }
+[data-theme="wechat"] .trust-undecided,
+[data-theme="wechat"] .trust-unknown    { background: #fdf3e2; color: #9a6200; }
+[data-theme="wechat"] .trust-distrusted { background: #fff1f0; color: var(--red); }
+[data-theme="wechat"] .device-inactive  { color: var(--text-3); font-size: 12px; margin-left: 6px; }
+[data-theme="wechat"] .device-warn,
+[data-theme="wechat"] .enc-warn { color: var(--red); font-size: 13px; }
+[data-theme="wechat"] .muted { color: var(--text-2); }
+
+/* Phones: WeChat's mobile layout — title bars on top, tab bar at the bottom. */
+@media (max-width: 768px) {
+  [data-theme="wechat"] #login-card,
+  [data-theme="wechat"] #lock-card { width: 100%; max-width: 360px; padding: 28px 20px 20px; }
+
+  [data-theme="wechat"] #nav-rail {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    z-index: 3;
+    width: auto;
+    height: calc(56px + env(safe-area-inset-bottom));
+    padding: 0 0 env(safe-area-inset-bottom);
+    flex-direction: row;
+    justify-content: space-around;
+    gap: 0;
+    background: #f7f7f7;
+    border-top: 1px solid var(--line);
+  }
+  [data-theme="wechat"] #app-layout.mobile-chat-open #nav-rail { display: none; }
+  [data-theme="wechat"] #nav-avatar, [data-theme="wechat"] .nav-spacer { display: none; }
+  [data-theme="wechat"] .nav-btn { flex-direction: column; gap: 2px; width: 72px; height: 52px; color: #191919; font-size: 24px; }
+  [data-theme="wechat"] .nav-btn.active { color: var(--green); }
+  [data-theme="wechat"] .nav-label { display: block; font-size: 10px; }
+
+  [data-theme="wechat"] #buddy-panel {
+    width: 100%;
+    bottom: calc(56px + env(safe-area-inset-bottom));
+    background: #fff;
+    border-right: none;
+  }
+  [data-theme="wechat"] .buddy-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 48px;
+    flex-shrink: 0;
+    background: #ededed;
+    font-size: 17px;
+    font-weight: 600;
+  }
+  [data-theme="wechat"] #buddy-count { font-size: 12px; font-weight: 400; color: var(--text-2); }
+  [data-theme="wechat"] .add-buddy-row { padding: 8px; background: #ededed; }
+  [data-theme="wechat"] .add-buddy-row input { background: #fff; padding: 8px 10px; font-size: 16px; }
+  [data-theme="wechat"] .add-buddy-row .btn { width: 36px; height: 36px; background: #fff; }
+  [data-theme="wechat"] #buddy-list li.buddy { height: 72px; padding: 12px 16px; position: relative; }
+  [data-theme="wechat"] #buddy-list li.buddy::after {
+    content: ""; position: absolute; left: 72px; right: 0; bottom: 0; border-bottom: 1px solid #ececec;
+  }
+  [data-theme="wechat"] #buddy-list li.buddy.active { background: #fff; }
+  [data-theme="wechat"] li.buddy .avatar { width: 46px; height: 46px; font-size: 19px; }
+  [data-theme="wechat"] li.buddy .status-dot,
+  [data-theme="wechat"] li.buddy.active .status-dot { border-color: #fff; }
+  [data-theme="wechat"] .buddy-name { font-size: 16px; }
+  [data-theme="wechat"] .buddy-preview { font-size: 13px; }
+  [data-theme="wechat"] #buddy-list .group-header { background: #ededed; padding: 6px 16px; }
+
+  [data-theme="wechat"] #chat-area { background: #ededed; }
+  [data-theme="wechat"] #chat-header { height: 48px; padding: 0 6px; background: #ededed; border-bottom: 1px solid #dcdcdc; }
+  [data-theme="wechat"] .mobile-back-btn { display: flex; font-size: 30px; }
+  [data-theme="wechat"] #chat-title { text-align: center; font-size: 17px; }
+  [data-theme="wechat"] .chat-log { padding: 12px 12px 4px; }
+  [data-theme="wechat"] .msg-main { max-width: 72%; }
+  [data-theme="wechat"] .msg .avatar { width: 40px; height: 40px; }
+  [data-theme="wechat"] .bubble { font-size: 16px; padding: 10px 12px; }
+  [data-theme="wechat"] .chat-input-area { background: #f7f7f7; padding: 4px 8px calc(8px + env(safe-area-inset-bottom)); }
+  [data-theme="wechat"] .chat-input-row { flex-direction: row; align-items: flex-end; gap: 8px; }
+  [data-theme="wechat"] textarea.chat-input { background: #fff; border-radius: 4px; height: 40px; max-height: 120px; padding: 8px 10px; font-size: 16px; }
+  [data-theme="wechat"] .send-btn.btn.primary { background: var(--green); color: #fff; padding: 9px 16px; }
+  [data-theme="wechat"] .chat-toolbar button { height: 36px; min-width: 36px; font-size: 19px; }
+  [data-theme="wechat"] .modal-backdrop { align-items: flex-end; padding: 0; }
+  [data-theme="wechat"] .modal-window { width: 100%; max-height: 90%; border-radius: 12px 12px 0 0; }
+  [data-theme="wechat"] .modal-body { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+}
