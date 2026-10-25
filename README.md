@@ -73,7 +73,7 @@ The nginx config (`nginx.conf`) enforces:
 
 - `Cache-Control: no-store` — prevents PHI caching in browsers and proxies
 - `Strict-Transport-Security` — locks browsers to HTTPS for 2 years
-- `Content-Security-Policy` with `script-src 'self'` and `style-src 'self'` (no inline script or CSS, no eval, no CDNs) and `connect-src` locked to `https://woofr.chat:5443` only
+- `Content-Security-Policy` with `script-src 'self'` and `style-src 'self'` (no inline script or CSS, no eval, no CDNs) and `connect-src` limited to `https://woofr.chat:5443` plus the page's own origin (used only by the new-version check)
 - `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy` / `-Resource-Policy: same-origin`
 - Only `/messenger/alpha/`, the files it loads (`app.js`, `omemo.js`, `history.js`, `styles.css`, two vendored scripts) and the licence texts are served (`/messenger/alpha` redirects to add the trailing slash); everything else returns 404 — no directory listing, no docs exposed
 
@@ -142,6 +142,10 @@ python3 -m http.server 8080
 - Messages are **deleted automatically** after the retention period: 30 days by default; 7, 30 or 90 days, or *Don't keep*, under **Settings → Message history**. Each message shows how long it has left — "12 days left" on the time stamps in the WeChat theme, `12d left` on each line in retro — and hovering shows the exact date.
 - It has to be local: OMEMO message keys are single-use, so history can't be re-fetched from the server and decrypted again.
 - *Don't keep* deletes what's saved and stops saving; *Remove this device's keys and history* (Settings → Shared computer?) deletes it along with the keys. A second tab for the same account shows the history but doesn't write it.
+
+### Updates
+
+Open tabs keep running the code they loaded, even after a deploy. Every 5 minutes, and when the tab returns to the foreground, the app re-fetches its own files and compares a hash with the copy it started with. If they differ, a banner offers **Reload to update**; it never reloads by itself, since that would sign you out mid-conversation.
 
 ### Status
 

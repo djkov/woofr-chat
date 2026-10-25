@@ -83,6 +83,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 .buddy-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .request-actions { display: flex; gap: 4px; flex-shrink: 0; }
 .msg-expiry:empty { display: none; }
+#update-banner { display: flex; align-items: center; justify-content: center; gap: 12px; flex-shrink: 0; padding: 6px 12px; }
 
 #chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 #chat-header { display: flex; align-items: center; flex-shrink: 0; }
@@ -923,6 +924,10 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
   position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border: 2px solid var(--rail);
 }
 [data-theme="wechat"] .buddy-status { display: none; }
+[data-theme="wechat"] #update-banner { background: var(--warn-bg); color: var(--warn-text); font-size: 13px; }
+[data-theme="wechat"] #update-banner .btn { padding: 4px 12px; font-size: 12px; }
+[data-theme="retro"] #update-banner { background: var(--r-note-bg); color: var(--r-note-text); border-top: 1px solid var(--r-note-line); font-size: 11px; }
+[data-theme="retro"] #update-banner .btn { padding: 1px 8px; font-size: 10px; }
 [data-theme="wechat"] #buddy-list li.request { cursor: default; }
 [data-theme="wechat"] .request-actions .btn { padding: 4px 10px; font-size: 12px; }
 [data-theme="wechat"] #chat-subtitle { font-size: 12px; color: var(--text-2); margin-top: 1px; }
