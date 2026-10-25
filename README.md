@@ -126,7 +126,22 @@ python3 -m http.server 8080
 
 - **WeChat** (default) — dark navigation rail, chat list with avatars, last-message previews, timestamps and red unread badges; green/white chat bubbles with centred time stamps. On phones: title bars on top, a Chats / Settings / Sign out tab bar at the bottom.
 - **Retro** — the original Windows 2000 / AIM look: title bar, buddy list, tabbed chat windows, `[12:34] nick: text` lines.
-- Switch on the sign-in screen or in **Settings**. Only the theme name is remembered (`localStorage`, key `woofr.theme`); it's applied before first paint.
+- **Screen saver** (retro): when the session locks, a DVD-player-style *woofr.chat* logo bounces around a black screen, changing colour off each wall (watch for the corner). Any key or click brings back the unlock prompt; it returns after a minute untouched. *Settings → Theme* has *Preview* and *(None)*, and it holds still for people who've asked for reduced motion.
+- **Light and dark** for both themes. *Automatic* (the default) follows the system setting; *Light* or *Dark* overrides it.
+- Switch on the sign-in screen or in **Settings**. Only the theme and light/dark choice are remembered (`localStorage`, keys `woofr.theme`, `woofr.mode` and `woofr.screensaver`); they're applied before first paint.
+
+### Profile pictures
+
+- Contacts' pictures appear in the chat list, chat header area and next to messages (WeChat theme), read from **XEP-0084** (PEP avatars — Conversations, Monal, Dino, Gajim) with **XEP-0153** vCard avatars as the fallback (Converse and older clients).
+- **Settings → Profile picture** sets or removes yours. It's square-cropped to 192×192 PNG and published both ways, so every kind of client sees it. The rest of your vCard is kept.
+- Pictures only ever come from the XMPP server — avatars that point at an outside URL are ignored. Each is checked against its SHA-1, must be PNG/JPEG/GIF/WebP and at most 512 KB, and is redrawn on a canvas (dropping EXIF and other metadata) before it's shown. They're held in memory only and wiped on sign-out.
+
+### Status
+
+- **Settings → Your status** (or click your picture in the WeChat rail, or *[online]* in retro): *Available*, *Away* or *Busy*, plus an optional status message, sent to your contacts as standard XMPP presence.
+- Contacts' status shows as a coloured dot, under their name in the chat list until you've exchanged messages, in the chat header, and in tooltips; retro shows the message next to the name.
+- While the session is locked you show as *Away* (unless you chose *Busy*), and go back to what you set when you unlock.
+- Status messages are **not** end-to-end encrypted (presence never is) and aren't remembered between sessions; Settings warns not to put sensitive details in them.
 
 ### End-to-end encryption (OMEMO)
 
@@ -183,7 +198,10 @@ XMPP over HTTP long-polling. Handled entirely by Strophe.js.
 `omemo.js`. Publishes this browser's device and bundle (100 one-time prekeys, refilled as they're used; signed prekey rotated weekly) with an `open` access model, fetches contacts' device lists and bundles, and encrypts each message with AES-128-GCM, the key + tag going to every recipient device through its Signal session. Outgoing messages carry an EME hint, a `store` hint, and a content-free fallback body.
 
 ### XEP-0030 / XEP-0115 — Service Discovery / Entity Capabilities
-The client answers `disco#info` and advertises a caps hash in its presence. That's what tells the server to push contacts' OMEMO device-list changes (`devicelist+notify`).
+The client answers `disco#info` and advertises a caps hash in its presence. That's what tells the server to push contacts' OMEMO device-list and avatar changes (`devicelist+notify`, `urn:xmpp:avatar:metadata+notify`).
+
+### XEP-0084 / XEP-0153 (+ XEP-0054) — Avatars
+Reads PEP avatars (metadata pushes, data fetched by hash) and vCard-based avatars (photo hash in presence, vCard fetched on change). Publishes your own picture to both, and advertises your vCard photo hash in presence.
 
 ### XEP-0224 — Attention
 
@@ -256,6 +274,7 @@ All sounds are synthesised via the **Web Audio API** — no audio files needed.
 - **No message carbons** — XEP-0280 not implemented, so messages you send from another device don't show up here (they *are* encrypted for your other devices, so those can read what you send from here).
 - **No multi-user chat** — XEP-0045 (MUC) not implemented, so no group OMEMO either.
 - **OMEMO library** — `libsignal-protocol-typescript` is a community TypeScript port of Signal's protocol, not Signal's own code, and hasn't had a public audit. Its PreKey receive path skips the identity check (a missing `await`); `omemo.js`'s key store refuses changed keys itself to close that gap. It is **GPL-3.0**: serving it to browsers is distribution, so the client as a whole needs to be GPL-compatible.
+- **No "now playing"** yet — the plan for sharing what you're listening to (e.g. Spotify) is XEP-0118 *User Tune* over PEP, the same way avatars travel. Reading Spotify would mean an OAuth connection to Spotify's API from the browser, so it needs a CSP exception and a privacy decision first.
 - **Legacy OMEMO only** — the newer `urn:xmpp:omemo:2` namespace (OMEMO 0.8+) isn't supported; few clients ship it yet.
 - **No file transfer** — XEP-0096 / XEP-0234 not implemented.
 - **No message delivery receipts** — XEP-0184 not implemented.
@@ -269,10 +288,14 @@ All sounds are synthesised via the **Web Audio API** — no audio files needed.
 
 ```
 index.html           Markup only — login, lock and app panels, nav rail, buddy list, chat area, dialog
-styles.css           Shared layout, then [data-theme="retro"] and [data-theme="wechat"] rules
+styles.css           Shared layout, then [data-theme="retro"] and [data-theme="wechat"] rules (colours from
+                     palette variables), then the dark palettes for data-mode="auto" / "dark"
 
 app.js
-├── Theme            savedTheme / applyTheme / setTheme (runs before first paint)
+├── Theme            savedTheme / applyTheme / setTheme, savedMode / applyMode / setMode (before first paint)
+├── Avatars          avatar / paintAvatar, onAvatarMetadata (XEP-0084), onVcardUpdate (XEP-0153), setOwnAvatar
+├── Status           setMyStatus / renderOwnStatus / statusSection; auto-away while locked
+├── Screen saver     startScreensaver / stopScreensaver / onSaverInput (retro lock screen)
 ├── State            conn, myJid, buddies{}, chatWindows{}, activeChat, nudgeTimestamps{}
 ├── Auth             doLogin (also opens the OMEMO vault) / onConnectStatus / onConnected
 ├── Disco / caps     computeCapsVer / sendPresence / onDiscoInfo
@@ -303,7 +326,7 @@ vendor/libsignal-build/     The recipe that produced it (entry point, pinned loc
 - **Strophe.js 1.6.2 UMD build** is vendored as `vendor/strophe.umd.min.js` — the ESM `src/strophe.js` fails in non-module `<script>` tags. To update it: `npm pack strophe.js@<version>` (npm verifies the tarball's integrity), copy `package/dist/strophe.umd.min.js` and `package/LICENSE.txt` into `vendor/`.
 - **libsignal** is vendored as one IIFE bundle (global `libsignal`). To rebuild or update it: in `vendor/libsignal-build/`, run `npm ci --ignore-scripts` then `npm run build`, which writes `vendor/libsignal.min.js` (with a banner pointing to its source, and the upstream licence comments kept at the end). It must stay free of `eval`/`new Function` (the CSP blocks them); the curve code is a pure-JS wasm2js build, so it is. Regenerate `vendor/libsignal-LICENSES.txt` if the dependency tree changes.
 - **No inline JS or CSS, ever.** The CSP is `script-src 'self'; style-src 'self'`, so inline `<script>`/`<style>` blocks and `onclick=""`/`style=""` attributes are blocked. Attach handlers from `app.js`, toggle visibility with the `hidden` attribute, and build DOM with `textContent` — never put JIDs, roster names or message text into `innerHTML`. (Setting `element.style.x` from JS is fine; the CSP doesn't restrict the CSSOM.)
-- **Themes:** shared layout goes at the top of `styles.css`; anything visual is scoped under `[data-theme="retro"]` or `[data-theme="wechat"]`. Put `t-retro` / `t-wechat` on markup that should only appear in one theme.
+- **Themes:** shared layout goes at the top of `styles.css`; anything visual is scoped under `[data-theme="retro"]` or `[data-theme="wechat"]`. Put `t-retro` / `t-wechat` on markup that should only appear in one theme. **Colours always come from the theme's palette variables** (`--r-*` for retro, unprefixed for WeChat) — add new ones to the light palette *and* both dark blocks at the end of the file, never as hex in a rule, or dark mode breaks.
 - **OMEMO state** is only touched through `Omemo.Session`, whose jobs run one at a time and persist the ratchet before a message is sent or shown — never send a stanza built by `encrypt()` before that promise resolves.
 - SCRAM-SHA-512 is deleted from `conn.mechanisms` before `connect()` — the Strophe implementation sends a literal base64(`"false"`) as the client-final message, which fails auth on every server.
 - Incoming attention stanzas are detected with `getElementsByTagNameNS('urn:xmpp:attention:0', 'attention')` rather than `querySelector` — namespace-aware queries are required for XML stanzas and `querySelector` attribute matching is unreliable across browsers on XML documents.

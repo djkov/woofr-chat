@@ -71,7 +71,9 @@ Implemented in `app.js` / `index.html` / `nginx.conf`:
 **Deliberately not built: client-side audit log panel.** The original plan included an in-session, user-visible, non-persisted log of sign-ins/messages. It wouldn't satisfy §164.312(b): a log that lives in the user's own browser, vanishes on reload, and can be edited from devtools isn't an audit trail. Audit controls belong on the server (Phase 3).
 
 **Invariants to keep** (a regression here undoes Phase 1):
-- No `localStorage`/`sessionStorage`/IndexedDB/cookies for anything that could contain PHI. The two exceptions are deliberate and narrow: the theme name (localStorage), and OMEMO key material in IndexedDB — always encrypted under the password, never message text, contact lists or logs.
+- No `localStorage`/`sessionStorage`/IndexedDB/cookies for anything that could contain PHI. The exceptions are deliberate and narrow: the theme, light/dark and screen-saver choices (localStorage), and OMEMO key material in IndexedDB — always encrypted under the password, never message text, contact lists, status messages, pictures or logs.
+- Profile pictures are fetched from the XMPP server only (never an outside URL), checked against their hash, redrawn without metadata, and kept in memory until sign-out.
+- Status messages are presence, which is never end-to-end encrypted — the UI says so, and they aren't remembered between sessions.
 - No `style=""` attributes or inline `<style>` (the CSP blocks them).
 - Nothing is sent unencrypted unless the user turned encryption off for that chat.
 - No inline `<script>` or `on*=""` attributes; no untrusted data in `innerHTML`.

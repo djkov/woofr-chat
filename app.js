@@ -58,10 +58,12 @@ let unlockVerifier = null; // Promise<{ salt, hash } | null> — never the passw
 let unlockAttempts = 0;
 
 // ── Theme ──────────────────────────────────────────────────────────────────
-// The theme name is the only thing this app keeps in localStorage. It isn't
-// PHI.
+// The theme name and light/dark choice are the only things this app keeps in
+// localStorage. They aren't PHI.
 const THEMES    = ['wechat', 'retro'];
 const THEME_KEY = 'woofr.theme';
+const MODES     = ['auto', 'light', 'dark']; // auto follows the system setting
+const MODE_KEY  = 'woofr.mode';
 
 function savedTheme() {
   try {
@@ -80,10 +82,32 @@ function applyTheme(theme) {
 function setTheme(theme) {
   if (!THEMES.includes(theme)) return;
   applyTheme(theme);
+  if (theme !== 'retro') stopScreensaver();
   try { localStorage.setItem(THEME_KEY, theme); } catch { /* private mode etc. — just don't remember it */ }
 }
 
+function savedMode() {
+  try {
+    const m = localStorage.getItem(MODE_KEY);
+    return MODES.includes(m) ? m : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
+function applyMode(mode) {
+  document.documentElement.dataset.mode = mode;
+  document.querySelectorAll('.mode-select').forEach(s => { s.value = mode; });
+}
+
+function setMode(mode) {
+  if (!MODES.includes(mode)) return;
+  applyMode(mode);
+  try { localStorage.setItem(MODE_KEY, mode); } catch { /* just don't remember it */ }
+}
+
 applyTheme(savedTheme());
+applyMode(savedMode());
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function now() {
@@ -119,15 +143,315 @@ function shortName(jid) {
 
 const AVATAR_COLORS = ['#5b8def', '#e8735a', '#3fae74', '#b072d0', '#e59a2f', '#3aa9bf', '#d9648f', '#7a8794'];
 
-// A coloured square with the contact's initial (we don't fetch avatars).
+// The contact's profile picture, or a coloured square with their initial.
+// Tagged with the JID so it can be repainted when a picture arrives.
 function avatar(jid) {
-  const initial = (shortName(jid).match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase();
-  const a = el('div', 'avatar', initial);
-  let h = 0;
-  for (const ch of jid) h = (h * 31 + ch.codePointAt(0)) >>> 0;
-  a.style.backgroundColor = AVATAR_COLORS[h % AVATAR_COLORS.length]; // CSSOM, not a style="" attribute — CSP allows it
+  const a = el('div', 'avatar');
+  a.dataset.jid = jid;
   a.setAttribute('aria-hidden', 'true');
+  paintAvatar(a);
   return a;
+}
+
+function paintAvatar(a) {
+  const jid = a.dataset.jid;
+  const pic = avatars[jid]?.url;
+  if (pic) {
+    const img = el('img');
+    img.alt = '';
+    img.src = pic; // always a data: URL we drew ourselves (see renderAvatarImage)
+    a.replaceChildren(img);
+    a.classList.add('has-pic');
+    a.style.backgroundColor = '';
+  } else {
+    a.replaceChildren((shortName(jid).match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase());
+    a.classList.remove('has-pic');
+    let h = 0;
+    for (const ch of jid) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    a.style.backgroundColor = AVATAR_COLORS[h % AVATAR_COLORS.length]; // CSSOM, not a style="" attribute — CSP allows it
+  }
+}
+
+function renderOwnStatus() {
+  if (!myJid) return;
+  const show = myShow || (idleAway ? 'away' : '');
+  const wrap = el('div', 'avatar-wrap');
+  wrap.append(avatar(myJid), el('div', 'status-dot' + dotClass(show)));
+  const nav = document.getElementById('nav-avatar');
+  nav.replaceChildren(wrap);
+  nav.title = 'Your status: ' + presenceLabel(show) + (myStatusText ? ' — ' + myStatusText : '');
+  document.getElementById('my-dot').className = 'status-dot' + dotClass(show);
+  const label = document.getElementById('btn-my-status');
+  label.textContent = '[' + presenceLabel(show).toLowerCase() + ']';
+  label.title = myStatusText || 'Set your status';
+}
+
+function setMyStatus(show, text) {
+  myShow = ['away', 'dnd'].includes(show) ? show : '';
+  myStatusText = text.trim().slice(0, STATUS_MAX);
+  if (conn) sendPresence(conn);
+  renderOwnStatus();
+}
+
+function statusSection() {
+  const s = section('Your status');
+  const row = el('div', 'device-actions');
+  const show = el('select', 'status-select');
+  show.append(new Option('Available', ''), new Option('Away', 'away'), new Option('Busy', 'dnd'));
+  show.value = myShow;
+  show.setAttribute('aria-label', 'Availability');
+  const text = el('input', 'status-input');
+  text.type = 'text';
+  text.maxLength = STATUS_MAX;
+  text.placeholder = 'Status message (optional)';
+  text.value = myStatusText;
+  text.spellcheck = false;
+  text.setAttribute('aria-label', 'Status message');
+  const save = el('button', 'btn primary', 'Update');
+  const saved = el('span', 'muted');
+  const apply = () => { setMyStatus(show.value, text.value); saved.textContent = 'Updated.'; };
+  save.onclick = apply;
+  text.onkeydown = e => { if (e.key === 'Enter') apply(); };
+  show.onchange = apply;
+  row.append(show, text, save, saved);
+  s.append(row, el('p', 'muted',
+    'Your contacts see this. Status messages aren\'t end-to-end encrypted, so don\'t put patient or other sensitive details in them.'));
+  return s;
+}
+
+function refreshAvatars(jid) {
+  document.querySelectorAll('.avatar').forEach(a => { if (a.dataset.jid === jid) paintAvatar(a); });
+}
+
+// ── Profile pictures (XEP-0084 User Avatar, XEP-0153 vCard avatars) ───────
+// Only ever fetched from the XMPP server: avatars that point at an outside
+// URL are ignored. Each one is checked against its SHA-1, decoded, and
+// redrawn small on a canvas (which also drops metadata such as EXIF
+// location), then kept in memory as a data: URL. Wiped in endSession().
+const NS_PUBSUB       = 'http://jabber.org/protocol/pubsub';
+const NS_PUBSUB_EVENT = NS_PUBSUB + '#event';
+const NS_AVATAR_DATA  = 'urn:xmpp:avatar:data';
+const NS_AVATAR_META  = 'urn:xmpp:avatar:metadata';
+const NS_VCARD        = 'vcard-temp';
+const NS_VCARD_UPDATE = 'vcard-temp:x:update';
+const AVATAR_TYPES    = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const AVATAR_MAX_BYTES = 512 * 1024;
+const AVATAR_PX         = 128; // kept in memory; shown at up to 46px, so sharp on 2x screens
+const AVATAR_PUBLISH_PX = 192;
+
+let avatars      = {};   // jid -> { src: 'pep' | 'vcard', hash, url }
+let avatarImages = {};   // sha1 -> Promise<data: URL | null>
+let avatarAsked  = new Set(); // JIDs whose PEP avatar we've asked for this session
+let ownVcardHash = null; // our vCard photo hash, for XEP-0153 presence ('' = none, null = unknown)
+
+// ── Your status (presence <show/> and <status/>) ──────────────────────────
+// Shared with everyone subscribed to your presence. Presence isn't end-to-end
+// encrypted, so the server sees the status text too — Settings says so. Not
+// remembered between sessions: the text could hold anything.
+const STATUS_MAX = 200;
+let myShow       = '';    // '' (available) | 'away' | 'dnd'
+let myStatusText = '';
+let idleAway     = false; // shown as away while the session is locked
+
+function iqP(c, stanza) {
+  return new Promise((resolve, reject) => c.sendIQ(stanza, resolve, err => reject(err || new Error('timeout')), 15_000));
+}
+
+async function sha1Hex(bytes) {
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-1', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function b64ToBytes(b64) {
+  const s = atob(b64.replace(/\s+/g, ''));
+  const u = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);
+  return u;
+}
+
+function bytesToB64(bytes) {
+  const u = new Uint8Array(bytes);
+  let s = '';
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+// Square-crops and scales an image onto a canvas. createImageBitmap rejects
+// anything that isn't a decodable bitmap image (SVG included).
+async function drawSquare(blob, px) {
+  const bmp = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = px;
+    const side = Math.min(bmp.width, bmp.height);
+    canvas.getContext('2d').drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, px, px);
+    return canvas;
+  } finally {
+    bmp.close();
+  }
+}
+
+async function renderAvatarImage(bytes) {
+  if (bytes.byteLength > AVATAR_MAX_BYTES) throw new Error('avatar too large');
+  return (await drawSquare(new Blob([bytes]), AVATAR_PX)).toDataURL('image/png');
+}
+
+// Fetches (once per hash), verifies and decodes, then shows it for `jid`.
+// A PEP avatar always wins over a vCard one.
+async function loadAvatar(c, jid, src, hash, fetchBytes) {
+  hash = hash.toLowerCase();
+  if (!avatarImages[hash]) {
+    avatarImages[hash] = (async () => {
+      const bytes = await fetchBytes();
+      if (await sha1Hex(bytes) !== hash) throw new Error('avatar hash mismatch');
+      return renderAvatarImage(bytes);
+    })().catch(e => { console.warn('Couldn\'t load avatar for', jid, e); return null; });
+  }
+  const url = await avatarImages[hash];
+  if (c !== conn || !url) return;
+  if (src === 'vcard' && avatars[jid]?.src === 'pep') return;
+  avatars[jid] = { src, hash, url };
+  refreshAvatars(jid);
+}
+
+function clearAvatar(jid, src) {
+  if (avatars[jid]?.src !== src) return;
+  delete avatars[jid];
+  refreshAvatars(jid);
+}
+
+// XEP-0084 metadata, from a PEP push or a fetch. Empty = avatar removed.
+function onAvatarMetadata(c, jid, metadata) {
+  const infos = metadata ? [...metadata.getElementsByTagNameNS(NS_AVATAR_META, 'info')] : [];
+  if (!infos.length) { clearAvatar(jid, 'pep'); return; }
+  const usable = infos.filter(i => !i.getAttribute('url') && AVATAR_TYPES.includes(i.getAttribute('type')) &&
+    /^[0-9a-f]{40}$/i.test(i.getAttribute('id') || '') && +(i.getAttribute('bytes') || 0) <= AVATAR_MAX_BYTES);
+  const info = usable.find(i => i.getAttribute('type') === 'image/png') || usable[0];
+  if (!info) return;
+  const hash = info.getAttribute('id').toLowerCase();
+  if (avatars[jid]?.src === 'pep' && avatars[jid].hash === hash) return;
+  loadAvatar(c, jid, 'pep', hash, async () => {
+    const attrs = { type: 'get' };
+    if (jid !== myJid) attrs.to = jid;
+    const res = await iqP(c, $iq(attrs).c('pubsub', { xmlns: NS_PUBSUB })
+      .c('items', { node: NS_AVATAR_DATA }).c('item', { id: hash }));
+    const data = res.getElementsByTagNameNS(NS_AVATAR_DATA, 'data')[0];
+    if (!data) throw new Error('no avatar data');
+    return b64ToBytes(data.textContent);
+  });
+}
+
+// For contacts the server doesn't push to us (e.g. not on the roster).
+function requestAvatar(c, jid) {
+  if (avatarAsked.has(jid) || avatars[jid]?.src === 'pep') return;
+  avatarAsked.add(jid);
+  const attrs = { type: 'get' };
+  if (jid !== myJid) attrs.to = jid;
+  iqP(c, $iq(attrs).c('pubsub', { xmlns: NS_PUBSUB }).c('items', { node: NS_AVATAR_META, max_items: 1 }))
+    .then(res => { if (c === conn) onAvatarMetadata(c, jid, res.getElementsByTagNameNS(NS_AVATAR_META, 'metadata')[0]); })
+    .catch(() => { /* no avatar, or not allowed to see it */ });
+}
+
+async function fetchVcard(c, jid) {
+  const attrs = { type: 'get' };
+  if (jid !== myJid) attrs.to = jid;
+  const res = await iqP(c, $iq(attrs).c('vCard', { xmlns: NS_VCARD }));
+  return res.getElementsByTagNameNS(NS_VCARD, 'vCard')[0] || null;
+}
+
+function vcardPhoto(vcard) {
+  const photo = vcard && [...vcard.childNodes].find(n => n.localName === 'PHOTO');
+  const binval = photo && [...photo.childNodes].find(n => n.localName === 'BINVAL');
+  const type = photo && [...photo.childNodes].find(n => n.localName === 'TYPE');
+  if (!binval || !binval.textContent.trim()) return null;
+  if (type && type.textContent.trim() && !AVATAR_TYPES.includes(type.textContent.trim().toLowerCase())) return null;
+  return b64ToBytes(binval.textContent);
+}
+
+// XEP-0153: a photo hash in someone's presence.
+function onVcardUpdate(c, jid, pres) {
+  const x = pres.getElementsByTagNameNS(NS_VCARD_UPDATE, 'x')[0];
+  const photo = x && [...x.childNodes].find(n => n.localName === 'photo');
+  if (!photo) return; // no element: the client doesn't know yet
+  const hash = photo.textContent.trim().toLowerCase();
+  if (!hash) { clearAvatar(jid, 'vcard'); return; }
+  if (!/^[0-9a-f]{40}$/.test(hash) || avatars[jid]?.src === 'pep' || avatars[jid]?.hash === hash) return;
+  loadAvatar(c, jid, 'vcard', hash, async () => {
+    const bytes = vcardPhoto(await fetchVcard(c, jid));
+    if (!bytes) throw new Error('no vCard photo');
+    return bytes;
+  });
+}
+
+// Our own picture: PEP first, vCard as the fallback. Also learns our vCard
+// photo hash so presence can advertise it to vCard-only clients.
+async function loadOwnAvatar(c) {
+  requestAvatar(c, myJid);
+  try {
+    const bytes = vcardPhoto(await fetchVcard(c, myJid));
+    if (c !== conn) return;
+    ownVcardHash = bytes ? await sha1Hex(bytes) : '';
+    if (bytes) loadAvatar(c, myJid, 'vcard', ownVcardHash, async () => bytes);
+  } catch {
+    if (c !== conn) return;
+    ownVcardHash = ''; // no vCard yet
+  }
+  sendPresence(c);
+}
+
+// Publishes a new picture (or removes it, with file = null): XEP-0084 for
+// current clients, and the vCard for clients that only read those.
+async function setOwnAvatar(file) {
+  const c = conn;
+  let bytes = null, hash = '', url = null;
+  if (file) {
+    const canvas = await drawSquare(file, AVATAR_PUBLISH_PX); // rejects files that aren't images
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    bytes = new Uint8Array(await blob.arrayBuffer());
+    hash = await sha1Hex(bytes);
+    url = await renderAvatarImage(bytes);
+  }
+  if (c !== conn) return;
+
+  const pub = (node, id) => $iq({ type: 'set' }).c('pubsub', { xmlns: NS_PUBSUB }).c('publish', { node }).c('item', { id });
+  if (bytes) {
+    await iqP(c, pub(NS_AVATAR_DATA, hash).c('data', { xmlns: NS_AVATAR_DATA }).t(bytesToB64(bytes)));
+    await iqP(c, pub(NS_AVATAR_META, hash).c('metadata', { xmlns: NS_AVATAR_META })
+      .c('info', { bytes: bytes.byteLength, id: hash, height: AVATAR_PUBLISH_PX, width: AVATAR_PUBLISH_PX, type: 'image/png' }));
+  } else {
+    await iqP(c, pub(NS_AVATAR_META, 'current').c('metadata', { xmlns: NS_AVATAR_META }));
+  }
+
+  // The vCard is replaced as a whole, so keep everything but the photo.
+  try {
+    let vcard = null;
+    try { vcard = await fetchVcard(c, myJid); } catch { /* none yet */ }
+    const doc = new DOMParser().parseFromString('<vCard xmlns="vcard-temp"/>', 'text/xml');
+    const out = doc.documentElement;
+    if (vcard) [...vcard.childNodes].forEach(n => { if (n.localName !== 'PHOTO') out.appendChild(doc.importNode(n, true)); });
+    if (bytes) {
+      const photo = doc.createElementNS(NS_VCARD, 'PHOTO');
+      const type = doc.createElementNS(NS_VCARD, 'TYPE');
+      type.textContent = 'image/png';
+      const binval = doc.createElementNS(NS_VCARD, 'BINVAL');
+      binval.textContent = bytesToB64(bytes);
+      photo.append(type, binval);
+      out.appendChild(photo);
+    }
+    await iqP(c, $iq({ type: 'set' }).cnode(out));
+  } catch (e) {
+    console.warn('Couldn\'t update the vCard photo', e);
+  }
+  if (c !== conn) return;
+
+  ownVcardHash = hash;
+  sendPresence(c);
+  if (bytes) {
+    avatarImages[hash] = Promise.resolve(url);
+    avatars[myJid] = { src: 'pep', hash, url };
+  } else {
+    delete avatars[myJid];
+  }
+  refreshAvatars(myJid);
 }
 
 // Where the corresponding source lives (GPL-3.0 §6) — linked from About.
@@ -256,7 +580,7 @@ function onConnected() {
   sessionActive = true;
   myJid = bareJid(c.jid);
   document.getElementById('my-jid-display').textContent = myJid;
-  document.getElementById('nav-avatar').replaceChildren(avatar(myJid));
+  renderOwnStatus();
   requestNotifPermission();
 
   // Bind handlers to this connection: once it's torn down, any stanza still in
@@ -270,6 +594,7 @@ function onConnected() {
 
   startOmemo(c);
   sendPresence(c);
+  loadOwnAvatar(c);
   c.sendIQ(
     $iq({type: 'get'}).c('query', {xmlns: Strophe.NS.ROSTER}),
     live(onRoster)
@@ -293,7 +618,14 @@ function sendPresence(c) {
   capsVer.then(ver => {
     if (c !== conn) return;
     const p = $pres();
-    if (ver) p.c('c', { xmlns: NS_CAPS, hash: 'sha-1', node: CAPS_NODE, ver });
+    const show = myShow || (idleAway ? 'away' : '');
+    if (show) p.c('show').t(show).up();
+    if (myStatusText) p.c('status').t(myStatusText).up();
+    if (ver) p.c('c', { xmlns: NS_CAPS, hash: 'sha-1', node: CAPS_NODE, ver }).up();
+    if (ownVcardHash !== null) {
+      p.c('x', { xmlns: NS_VCARD_UPDATE });
+      if (ownVcardHash) p.c('photo').t(ownVcardHash); else p.c('photo');
+    }
     c.send(p.tree());
   });
 }
@@ -445,11 +777,16 @@ function onPresence(pres) {
   const show  = showEl ? showEl.textContent : (type === 'available' ? 'online' : 'offline');
 
   if (from === myJid) return true;
+  if (type !== 'unavailable' && type !== 'error') onVcardUpdate(conn, from, pres);
 
   if (!buddies[from]) buddies[from] = { name: from, show: 'offline' };
   buddies[from].show = (type === 'unavailable') ? 'offline' : show;
+  const statusEl = [...pres.childNodes].find(n => n.localName === 'status');
+  buddies[from].status = type === 'unavailable' ? '' : (statusEl?.textContent.trim().slice(0, STATUS_MAX) || '');
 
   renderBuddyList();
+  if (from === activeChat) updateChatHeader();
+  if (chatWindows[from]) chatWindows[from].tab.title = buddies[from].status;
   return true;
 }
 
@@ -492,15 +829,17 @@ function makeBuddyLi(jid, b) {
   wrap.append(avatar(jid), el('div', 'status-dot' + dotClass(b.show)));
 
   const line1 = el('div', 'buddy-line1');
-  line1.append(el('span', 'buddy-name', b.name || jid), el('span', 'buddy-time', b.time || ''));
+  line1.append(el('span', 'buddy-name', b.name || jid));
+  if (b.status) line1.append(el('span', 'buddy-status', b.status));
+  line1.append(el('span', 'buddy-time', b.time || ''));
   const line2 = el('div', 'buddy-line2');
-  line2.append(el('span', 'buddy-preview', b.preview ?? presenceLabel(b.show)));
+  line2.append(el('span', 'buddy-preview', b.preview ?? (b.status || presenceLabel(b.show))));
   if (b.unread) line2.append(el('span', 'unread-badge', b.unread > 99 ? '99+' : String(b.unread)));
   const info = el('div', 'buddy-info');
   info.append(line1, line2);
 
   li.append(wrap, info);
-  li.title   = jid;
+  li.title   = jid + (b.status ? ' — ' + b.status : '');
   li.onclick = () => openChat(jid);
   return li;
 }
@@ -550,6 +889,8 @@ async function handleMessage(c, msg) {
   if (c !== conn) return;
 
   const type = msg.getAttribute('type') || 'normal';
+  const avatarPush = [...msg.getElementsByTagNameNS(NS_PUBSUB_EVENT, 'items')].find(i => i.getAttribute('node') === NS_AVATAR_META);
+  if (avatarPush) { onAvatarMetadata(c, bareJid(msg.getAttribute('from')) || myJid, avatarPush.getElementsByTagNameNS(NS_AVATAR_META, 'metadata')[0]); return; }
   if (omemo?.handleEvent(msg)) return; // PEP device-list push
   if (type === 'groupchat' || type === 'headline') return;
 
@@ -607,6 +948,7 @@ function showBuddyPanelMobile() {
 
 function openChat(jid) {
   if (!chatWindows[jid]) createChatWindow(jid);
+  requestAvatar(conn, jid);
   switchTab(jid);
   if (isMobileLayout()) document.getElementById('app-layout').classList.add('mobile-chat-open');
   markRead(jid);
@@ -692,8 +1034,11 @@ function switchTab(jid) {
 function updateChatHeader() {
   const area  = document.getElementById('chat-area');
   const title = document.getElementById('chat-title');
+  const sub   = document.getElementById('chat-subtitle');
   area.classList.toggle('has-chat', !!activeChat);
-  if (!activeChat) { title.replaceChildren(); return; }
+  if (!activeChat) { title.replaceChildren(); sub.textContent = ''; return; }
+  const b = buddies[activeChat];
+  sub.textContent = presenceLabel(b?.show) + (b?.status ? ' · ' + b.status : '');
   const off = encryptionState(activeChat) !== 'on';
   const lock = el('span', 'title-lock' + (off ? ' off' : ''));
   lock.title = off ? 'Not end-to-end encrypted' : 'End-to-end encrypted';
@@ -1030,15 +1375,78 @@ function ownFingerprintSection() {
   return s;
 }
 
+function profilePictureSection() {
+  const s = section('Profile picture');
+  const row = el('div', 'profile-row');
+  row.appendChild(avatar(myJid));
+  const side = el('div', 'profile-side');
+  side.appendChild(el('p', 'muted', 'Your contacts see this picture.'));
+  const actions = el('div', 'device-actions');
+  const file = el('input');
+  file.type = 'file';
+  file.accept = AVATAR_TYPES.join(',');
+  file.hidden = true;
+  const status = el('p', 'muted');
+  const run = async (f) => {
+    status.textContent = f ? 'Uploading…' : 'Removing…';
+    try {
+      await setOwnAvatar(f);
+      status.textContent = '';
+      renderModal();
+    } catch (e) {
+      status.textContent = 'That didn\'t work: ' + (e?.message || 'the server refused it') + '.';
+    }
+  };
+  file.onchange = () => { if (file.files[0]) run(file.files[0]); };
+  const change = el('button', 'btn', avatars[myJid] ? 'Change picture…' : 'Choose picture…');
+  change.onclick = () => file.click();
+  actions.append(change, file);
+  if (avatars[myJid]) {
+    const remove = el('button', 'btn danger', 'Remove');
+    remove.onclick = () => run(null);
+    actions.appendChild(remove);
+  }
+  side.append(actions, status);
+  row.appendChild(side);
+  s.appendChild(row);
+  return s;
+}
+
 function renderSettings(body, token) {
   document.getElementById('modal-title').textContent = 'Settings';
 
+  body.appendChild(statusSection());
+  body.appendChild(profilePictureSection());
+
   const theme = section('Theme');
+  const row = el('div', 'device-actions');
   const sel = el('select', 'theme-select');
   sel.append(new Option('WeChat', 'wechat'), new Option('Retro (Windows 2000)', 'retro'));
   sel.value = document.documentElement.dataset.theme;
   sel.onchange = () => setTheme(sel.value);
-  theme.appendChild(sel);
+  const mode = el('select', 'mode-select');
+  mode.append(new Option('Automatic (follow system)', 'auto'), new Option('Light', 'light'), new Option('Dark', 'dark'));
+  mode.value = document.documentElement.dataset.mode;
+  mode.onchange = () => setMode(mode.value);
+  mode.setAttribute('aria-label', 'Light or dark');
+  sel.onchange = () => { setTheme(sel.value); renderModal(); };
+  row.append(sel, mode);
+  theme.appendChild(row);
+  if (document.documentElement.dataset.theme === 'retro') {
+    const saverRow = el('div', 'device-actions saver-row');
+    const label = el('label', null, 'Screen saver:');
+    const pick = el('select', 'saver-select');
+    pick.id = 'sel-saver';
+    label.htmlFor = pick.id;
+    pick.append(new Option('woofr.chat logo', 'logo'), new Option('(None)', 'none'));
+    pick.value = saverEnabled() ? 'logo' : 'none';
+    pick.onchange = () => { setSaverEnabled(pick.value !== 'none'); preview.disabled = pick.value === 'none'; };
+    const preview = el('button', 'btn', 'Preview');
+    preview.disabled = !saverEnabled();
+    preview.onclick = previewScreensaver;
+    saverRow.append(label, pick, preview);
+    theme.append(saverRow, el('p', 'muted', 'Shown when the session locks after ' + (LOCK_AFTER_MS / 60_000) + ' minutes idle.'));
+  }
   body.appendChild(theme);
 
   const enc = ownFingerprintSection();
@@ -1190,6 +1598,116 @@ async function forgetThisDevice() {
   renderModal();
 }
 
+// ── Screen saver (retro theme) ───────────────────────────────────────────
+// The bouncing logo of a 2000s DVD player. It runs while the session is
+// locked — any key or click brings back the unlock prompt, and it comes back
+// after a minute of nothing — or as a preview from Settings. It only draws
+// the logo; behind it there's nothing but the lock screen (or, for a preview,
+// the app you were already looking at).
+const SAVER_KEY       = 'woofr.screensaver'; // 'logo' | 'none' — not PHI
+const SAVER_RETURN_MS = 60_000;
+const SAVER_SPEED     = 110; // px per second
+const SAVER_COLORS    = ['#ff6600', '#00b7ff', '#ff2bd6', '#7cff3a', '#ffe500', '#a066ff', '#ff3b3b', '#ffffff'];
+
+let saver = null;            // { x, y, dx, dy, last, color, moved, raf } while it's showing
+let saverReturnTimer = null;
+
+function saverEnabled() {
+  try { return localStorage.getItem(SAVER_KEY) !== 'none'; } catch { return true; }
+}
+
+function setSaverEnabled(on) {
+  try { localStorage.setItem(SAVER_KEY, on ? 'logo' : 'none'); } catch { /* just don't remember it */ }
+}
+
+function startScreensaver() {
+  if (saver) return;
+  const box  = document.getElementById('screensaver');
+  const logo = box.querySelector('.dvd-logo');
+  box.hidden = false;
+  const maxX = () => Math.max(0, box.clientWidth - logo.offsetWidth);
+  const maxY = () => Math.max(0, box.clientHeight - logo.offsetHeight);
+  const s = saver = {
+    x: Math.random() * maxX(), y: Math.random() * maxY(),
+    dx: Math.random() < 0.5 ? 1 : -1, dy: Math.random() < 0.5 ? 1 : -1,
+    last: 0, color: 0, moved: 0, raf: 0,
+  };
+  const paint = () => {
+    logo.style.transform = `translate(${s.x}px, ${s.y}px)`; // CSSOM — fine under the CSP
+    logo.style.color = SAVER_COLORS[s.color];
+  };
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    s.x = maxX() / 2; s.y = maxY() / 2;
+    paint();
+    return;
+  }
+  const step = t => {
+    if (saver !== s) return;
+    const dt = s.last ? Math.min((t - s.last) / 1000, 0.1) : 0;
+    s.last = t;
+    s.x += s.dx * SAVER_SPEED * dt;
+    s.y += s.dy * SAVER_SPEED * dt;
+    let hits = 0;
+    const w = maxX(), h = maxY();
+    if (s.x <= 0 || s.x >= w) { s.dx = s.x <= 0 ? 1 : -1; s.x = Math.min(Math.max(s.x, 0), w); hits++; }
+    if (s.y <= 0 || s.y >= h) { s.dy = s.y <= 0 ? 1 : -1; s.y = Math.min(Math.max(s.y, 0), h); hits++; }
+    if (hits) s.color = (s.color + 1) % SAVER_COLORS.length;
+    if (hits === 2) { // the corner!
+      logo.classList.remove('corner');
+      void logo.offsetWidth;
+      logo.classList.add('corner');
+    }
+    paint();
+    s.raf = requestAnimationFrame(step);
+  };
+  paint();
+  s.raf = requestAnimationFrame(step);
+}
+
+function stopScreensaver() {
+  if (!saver) return;
+  cancelAnimationFrame(saver.raf);
+  saver = null;
+  document.getElementById('screensaver').hidden = true;
+}
+
+// Back to the logo if the lock screen is left alone.
+function armSaverReturn() {
+  clearTimeout(saverReturnTimer);
+  if (!locked || document.documentElement.dataset.theme !== 'retro' || !saverEnabled()) return;
+  saverReturnTimer = setTimeout(() => {
+    if (!locked) return;
+    if (document.getElementById('inp-unlock-pass').value) armSaverReturn();
+    else startScreensaver();
+  }, SAVER_RETURN_MS);
+}
+
+function onSaverInput(e) {
+  if (!saver) {
+    if (locked) armSaverReturn(); // activity on the lock screen
+    return;
+  }
+  if (e.type === 'pointermove') {
+    saver.moved += Math.abs(e.movementX) + Math.abs(e.movementY);
+    if (saver.moved < 12) return; // a nudged desk isn't a person
+  }
+  if (e.type === 'keydown') {
+    // The key that wakes it up shouldn't land in the password box.
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+  stopScreensaver();
+  if (locked) {
+    document.getElementById('inp-unlock-pass').focus();
+    armSaverReturn();
+  }
+}
+
+function previewScreensaver() {
+  closeModal();
+  startScreensaver();
+}
+
 // ── Inactivity lock / logout ──────────────────────────────────────────────
 function noteActivity() {
   // While locked only a successful unlock counts — otherwise anyone could keep
@@ -1219,6 +1737,8 @@ function checkIdle() {
 function lockSession() {
   locked = true;
   unlockAttempts = 0;
+  idleAway = true;
+  if (conn) { sendPresence(conn); renderOwnStatus(); }
   closeModal(); // it sits outside the app layout, so hiding the layout wouldn't cover it
   document.getElementById('app-layout').hidden = true;
   document.getElementById('lock-panel').hidden = false;
@@ -1230,6 +1750,7 @@ function lockSession() {
   document.getElementById('inp-unlock-pass').value = '';
   document.getElementById('inp-unlock-pass').focus();
   setStatus('Session locked.');
+  if (document.documentElement.dataset.theme === 'retro' && saverEnabled()) startScreensaver();
 }
 
 async function doUnlock() {
@@ -1243,6 +1764,10 @@ async function doUnlock() {
 
   if (ok) {
     locked = false;
+    idleAway = false;
+    stopScreensaver();
+    clearTimeout(saverReturnTimer);
+    if (conn) { sendPresence(conn); renderOwnStatus(); }
     noteActivity();
     document.getElementById('lock-panel').hidden = true;
     document.getElementById('app-layout').hidden = false;
@@ -1299,6 +1824,8 @@ function endSession(reason = 'Not connected.', type = '') {
   stopAlertLoop();
   closeNotifications();
   closeModal();
+  stopScreensaver();
+  clearTimeout(saverReturnTimer);
 
   if (omemo) omemo.stop();
   omemo = null; omemoVault = null; omemoReady = null; omemoError = ''; omemoNotices = [];
@@ -1306,6 +1833,11 @@ function endSession(reason = 'Not connected.', type = '') {
   inbox = Promise.resolve();
 
   myJid = ''; buddies = {}; chatWindows = {}; activeChat = null; nudgeTimestamps = {};
+  avatars = {}; avatarImages = {}; avatarAsked = new Set(); ownVcardHash = null;
+  myShow = ''; myStatusText = ''; idleAway = false;
+  document.getElementById('chat-subtitle').textContent = '';
+  document.getElementById('my-dot').className = 'status-dot';
+  document.getElementById('btn-my-status').textContent = '[online]';
   document.getElementById('chat-tabs').replaceChildren();
   document.getElementById('chat-windows').replaceChildren();
   document.getElementById('buddy-list').replaceChildren();
@@ -1352,11 +1884,13 @@ function init() {
     document.getElementById('btn-login').disabled = true;
   }
 
-  features = [NS_CAPS, NS_DISCO_INFO, NS_ATTENTION, Omemo.NOTIFY_FEATURE].sort();
+  features = [NS_CAPS, NS_DISCO_INFO, NS_ATTENTION, Omemo.NOTIFY_FEATURE, NS_AVATAR_META + '+notify'].sort();
   capsVer  = computeCapsVer();
 
   applyTheme(savedTheme());
+  applyMode(savedMode());
   document.querySelectorAll('.theme-select').forEach(s => { s.onchange = () => setTheme(s.value); });
+  document.querySelectorAll('.mode-select').forEach(s => { s.onchange = () => setMode(s.value); });
 
   document.getElementById('btn-login').onclick         = doLogin;
   document.getElementById('btn-cancel').onclick        = doCancel;
@@ -1368,6 +1902,8 @@ function init() {
   document.getElementById('nav-sign-out').onclick      = doSignOut;
   document.getElementById('btn-settings').onclick      = openSettings;
   document.getElementById('nav-settings').onclick      = openSettings;
+  document.getElementById('nav-avatar').onclick        = openSettings;
+  document.getElementById('btn-my-status').onclick     = openSettings;
   document.getElementById('nav-chats').onclick         = showBuddyPanelMobile;
   document.getElementById('btn-chat-security').onclick = () => openEncryptionDetails(activeChat);
   document.getElementById('mobile-back-btn').onclick   = showBuddyPanelMobile;
@@ -1380,6 +1916,8 @@ function init() {
 
   ['pointerdown', 'keydown', 'wheel', 'touchstart', 'mousemove'].forEach(ev =>
     document.addEventListener(ev, noteActivity, { capture: true, passive: true }));
+  ['keydown', 'pointerdown', 'pointermove'].forEach(ev =>
+    document.addEventListener(ev, onSaverInput, { capture: true }));
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     checkIdle();
