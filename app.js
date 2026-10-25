@@ -591,13 +591,16 @@ function onConnected() {
   c.addHandler(live(onMessageStanza), null, 'message');
   c.addHandler(live(onPresence),      null, 'presence');
   c.addHandler(live(onDiscoInfo),     NS_DISCO_INFO, 'iq', 'get');
+  c.addHandler(live(onRosterPush),    Strophe.NS.ROSTER, 'iq', 'set');
 
   startOmemo(c);
-  sendPresence(c);
-  loadOwnAvatar(c);
+  // Roster first, then presence (RFC 6121 order): subscription requests that
+  // waited while we were offline arrive after our presence, and need the
+  // roster to tell contacts we added from strangers.
   c.sendIQ(
     $iq({type: 'get'}).c('query', {xmlns: Strophe.NS.ROSTER}),
-    live(onRoster)
+    live(iq => { onRoster(iq); sendPresence(c); loadOwnAvatar(c); }),
+    live(() => { sendPresence(c); loadOwnAvatar(c); })
   );
 
   startIdleTimer();
@@ -748,24 +751,95 @@ function noteSkipped(jid, skipped) {
 }
 
 // ── Roster ─────────────────────────────────────────────────────────────────
+// Presence only flows once a subscription is approved (RFC 6121). Each
+// buddy carries its roster state: inRoster, sub ('none' | 'to' | 'from' |
+// 'both') and ask (we've asked and are waiting). `requests` holds people who
+// asked to see our presence and haven't been answered.
+let requests = new Set();
+
+function applyRosterItem(item) {
+  const bare = bareJid(item.getAttribute('jid'));
+  if (!bare || bare === myJid) return;
+  if (item.getAttribute('subscription') === 'remove') {
+    if (buddies[bare]) {
+      if (chatWindows[bare]) Object.assign(buddies[bare], { inRoster: false, sub: 'none', ask: false });
+      else delete buddies[bare];
+    }
+    return;
+  }
+  const b = buddies[bare] || (buddies[bare] = { name: bare, show: 'offline' });
+  b.name     = item.getAttribute('name') || bare;
+  b.inRoster = true;
+  b.sub      = item.getAttribute('subscription') || 'none';
+  b.ask      = item.getAttribute('ask') === 'subscribe';
+  // Already sharing presence with them, so any request is settled.
+  if (b.sub === 'from' || b.sub === 'both') requests.delete(bare);
+}
+
 function onRoster(iq) {
-  iq.querySelectorAll('item').forEach(item => {
-    const jid  = item.getAttribute('jid');
-    const name = item.getAttribute('name') || jid;
-    const bare = bareJid(jid);
-    if (!buddies[bare]) buddies[bare] = { name, show: 'offline' };
-    else buddies[bare].name = name;
-  });
+  iq.querySelectorAll('item').forEach(applyRosterItem);
   renderBuddyList();
+}
+
+// The server tells us about roster changes (ours, or from our other
+// devices). Only our own server may: pushes from anyone else are ignored.
+function onRosterPush(iq) {
+  const from = iq.getAttribute('from');
+  if (from && bareJid(from) !== myJid) return true;
+  iq.querySelectorAll('item').forEach(applyRosterItem);
+  conn.send($iq({ type: 'result', id: iq.getAttribute('id') }));
+  renderBuddyList();
+  if (activeChat) updateChatHeader();
+  return true;
 }
 
 function addBuddy() {
   const jid = document.getElementById('inp-add-buddy').value.trim();
   if (!jid || !conn) return;
   const bare = bareJid(jid);
-  buddies[bare] = buddies[bare] || { name: bare, show: 'offline' };
-  conn.send($pres({to: jid, type: 'subscribe'}));
+  const b = buddies[bare] || (buddies[bare] = { name: bare, show: 'offline' });
+  b.inRoster = true;
+  b.ask = true;
+  conn.send($pres({to: bare, type: 'subscribe'}));
+  // If they'd already asked us, adding them back is the answer.
+  if (requests.has(bare)) approveRequest(bare);
   document.getElementById('inp-add-buddy').value = '';
+  renderBuddyList();
+}
+
+// Someone wants to see our presence. People we added ourselves are
+// approved straight away — adding someone means you want to see each other.
+// Anyone else waits for Accept / Decline.
+function onSubscribeRequest(from) {
+  const b = buddies[from];
+  if (b?.inRoster) {
+    approveRequest(from);
+    return;
+  }
+  if (requests.has(from)) return;
+  requests.add(from);
+  renderBuddyList();
+  notify('You have a new contact request.', { tag: 'subscribe' }); // no name: notifications never carry who
+}
+
+function approveRequest(jid) {
+  if (!conn) return;
+  requests.delete(jid);
+  conn.send($pres({ to: jid, type: 'subscribed' }));
+  const b = buddies[jid] || (buddies[jid] = { name: jid, show: 'offline' });
+  // Make it mutual: ask to see theirs too, unless we already do (or asked).
+  if (!(b.sub === 'to' || b.sub === 'both' || b.ask)) {
+    b.ask = true;
+    conn.send($pres({ to: jid, type: 'subscribe' }));
+  }
+  b.inRoster = true;
+  renderBuddyList();
+}
+
+function declineRequest(jid) {
+  if (!conn) return;
+  requests.delete(jid);
+  conn.send($pres({ to: jid, type: 'unsubscribed' }));
   renderBuddyList();
 }
 
@@ -776,8 +850,11 @@ function onPresence(pres) {
   const showEl = pres.querySelector('show');
   const show  = showEl ? showEl.textContent : (type === 'available' ? 'online' : 'offline');
 
-  if (from === myJid) return true;
-  if (type !== 'unavailable' && type !== 'error') onVcardUpdate(conn, from, pres);
+  if (from === myJid || !from) return true;
+  // Subscription traffic isn't availability: don't mark anyone offline for it.
+  if (type === 'subscribe') { onSubscribeRequest(from); return true; }
+  if (!['available', 'unavailable'].includes(type)) return true; // subscribed, unsubscribe(d), probe, error
+  if (type !== 'unavailable') onVcardUpdate(conn, from, pres);
 
   if (!buddies[from]) buddies[from] = { name: from, show: 'offline' };
   buddies[from].show = (type === 'unavailable') ? 'offline' : show;
@@ -809,6 +886,13 @@ function renderBuddyList() {
   document.getElementById('buddy-count').textContent = online.length + ' online';
   ul.replaceChildren();
 
+  if (requests.size) {
+    const gh = el('li', 'group-header');
+    gh.append(el('span', 'group-caret', '▼ '), 'Contact requests (' + requests.size + ')');
+    ul.appendChild(gh);
+    requests.forEach(jid => ul.appendChild(makeRequestLi(jid)));
+  }
+
   const group = (label, list) => {
     if (!list.length) return;
     const gh = el('li', 'group-header');
@@ -823,6 +907,32 @@ function renderBuddyList() {
   document.title = (unread ? '(' + unread + ') ' : '') + 'woofr.chat';
 }
 
+function makeRequestLi(jid) {
+  const li = el('li', 'buddy request');
+  const wrap = el('div', 'avatar-wrap');
+  wrap.appendChild(avatar(jid));
+  const info = el('div', 'buddy-info');
+  const line1 = el('div', 'buddy-line1');
+  line1.appendChild(el('span', 'buddy-name', jid));
+  const line2 = el('div', 'buddy-line2');
+  line2.appendChild(el('span', 'buddy-preview', 'Wants to add you'));
+  info.append(line1, line2);
+  const actions = el('div', 'request-actions');
+  const yes = el('button', 'btn primary', 'Accept');
+  const no  = el('button', 'btn', 'Decline');
+  yes.onclick = e => { e.stopPropagation(); approveRequest(jid); };
+  no.onclick  = e => { e.stopPropagation(); declineRequest(jid); };
+  actions.append(yes, no);
+  li.append(wrap, info, actions);
+  li.title = jid + ' wants to see when you\'re online';
+  return li;
+}
+
+// Shown instead of a presence label while they haven't approved us yet.
+function pendingLabel(b) {
+  return b.inRoster && b.ask && !(b.sub === 'to' || b.sub === 'both') ? 'Waiting for approval' : '';
+}
+
 function makeBuddyLi(jid, b) {
   const li = el('li', 'buddy' + (jid === activeChat ? ' active' : ''));
   const wrap = el('div', 'avatar-wrap');
@@ -833,7 +943,8 @@ function makeBuddyLi(jid, b) {
   if (b.status) line1.append(el('span', 'buddy-status', b.status));
   line1.append(el('span', 'buddy-time', b.time || ''));
   const line2 = el('div', 'buddy-line2');
-  line2.append(el('span', 'buddy-preview', b.preview ?? (b.status || presenceLabel(b.show))));
+  line2.append(el('span', 'buddy-preview', b.preview ?? (b.status || pendingLabel(b) || presenceLabel(b.show))));
+  if (pendingLabel(b)) line1.insertBefore(el('span', 'buddy-status', '(waiting for approval)'), line1.lastChild);
   if (b.unread) line2.append(el('span', 'unread-badge', b.unread > 99 ? '99+' : String(b.unread)));
   const info = el('div', 'buddy-info');
   info.append(line1, line2);
@@ -1038,7 +1149,7 @@ function updateChatHeader() {
   area.classList.toggle('has-chat', !!activeChat);
   if (!activeChat) { title.replaceChildren(); sub.textContent = ''; return; }
   const b = buddies[activeChat];
-  sub.textContent = presenceLabel(b?.show) + (b?.status ? ' · ' + b.status : '');
+  sub.textContent = (b && pendingLabel(b)) || (presenceLabel(b?.show) + (b?.status ? ' · ' + b.status : ''));
   const off = encryptionState(activeChat) !== 'on';
   const lock = el('span', 'title-lock' + (off ? ' off' : ''));
   lock.title = off ? 'Not end-to-end encrypted' : 'End-to-end encrypted';
@@ -1834,7 +1945,7 @@ function endSession(reason = 'Not connected.', type = '') {
 
   myJid = ''; buddies = {}; chatWindows = {}; activeChat = null; nudgeTimestamps = {};
   avatars = {}; avatarImages = {}; avatarAsked = new Set(); ownVcardHash = null;
-  myShow = ''; myStatusText = ''; idleAway = false;
+  myShow = ''; myStatusText = ''; idleAway = false; requests = new Set();
   document.getElementById('chat-subtitle').textContent = '';
   document.getElementById('my-dot').className = 'status-dot';
   document.getElementById('btn-my-status').textContent = '[online]';

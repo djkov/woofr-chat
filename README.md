@@ -174,9 +174,10 @@ See `HIPAA.md` for the reasoning.
 
 ### Buddy List
 
-- Populated from server roster via IQ query
-- Live presence updates — contacts show as **Online** (green), **Away** (yellow), or **Offline** (grey)
-- Inline "Add buddy" field — sends a presence subscription request
+- Populated from server roster via IQ query, kept current from the server's roster pushes
+- Live presence updates — contacts show as **Online** (green), **Away** (yellow), **Busy** (red) or **Offline** (grey)
+- Inline "Add buddy" field — sends a presence subscription request; the contact shows *Waiting for approval* until they accept
+- **Contact requests** (RFC 6121 subscriptions): a request from someone you've added is approved automatically, and approving makes it mutual, so both sides see each other. Requests from anyone else appear under *Contact requests* with **Accept** / **Decline** — nobody sees your presence without your OK. The roster loads before your presence goes out, so requests that waited on the server while you were offline are recognised too.
 - Click any buddy to open a chat window
 
 ### Chat
