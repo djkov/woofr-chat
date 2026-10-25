@@ -82,6 +82,7 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 #chat-subtitle:empty { display: none; }
 .buddy-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .request-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.msg-expiry:empty { display: none; }
 
 #chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 #chat-header { display: flex; align-items: center; flex-shrink: 0; }
@@ -500,6 +501,7 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
 [data-theme="retro"] .msg-me .nick   { color: var(--r-accent); font-weight: bold; }
 [data-theme="retro"] .msg-system     { color: var(--r-text-4); font-style: italic; font-size: 10px; }
 [data-theme="retro"] .msg-time       { color: var(--r-text-5); font-size: 9px; }
+[data-theme="retro"] .msg-expiry     { color: var(--r-text-5); font-size: 9px; }
 [data-theme="retro"] .msg-lock       { font-size: 9px; }
 [data-theme="retro"] .msg-flag       { margin-left: 6px; font-size: 9px; font-weight: bold; }
 [data-theme="retro"] .msg-flag.plain     { color: var(--r-orange); }
@@ -1127,6 +1129,7 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
 }
 [data-theme="wechat"] .msg-priority.read .priority-header { color: var(--text-2); }
 [data-theme="wechat"] .priority-header .msg-time { color: var(--text-3); font-weight: 400; margin-left: auto; }
+[data-theme="wechat"] .priority-header .msg-expiry { color: var(--text-3); font-weight: 400; }
 [data-theme="wechat"] .priority-body { font-size: 14px; font-weight: 500; line-height: 1.5; }
 [data-theme="wechat"] .priority-ack-btn {
   border: none;

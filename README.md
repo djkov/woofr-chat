@@ -75,7 +75,7 @@ The nginx config (`nginx.conf`) enforces:
 - `Strict-Transport-Security` — locks browsers to HTTPS for 2 years
 - `Content-Security-Policy` with `script-src 'self'` and `style-src 'self'` (no inline script or CSS, no eval, no CDNs) and `connect-src` locked to `https://woofr.chat:5443` only
 - `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy` / `-Resource-Policy: same-origin`
-- Only `/messenger/alpha/`, the files it loads (`app.js`, `omemo.js`, `styles.css`, two vendored scripts) and the licence texts are served (`/messenger/alpha` redirects to add the trailing slash); everything else returns 404 — no directory listing, no docs exposed
+- Only `/messenger/alpha/`, the files it loads (`app.js`, `omemo.js`, `history.js`, `styles.css`, two vendored scripts) and the licence texts are served (`/messenger/alpha` redirects to add the trailing slash); everything else returns 404 — no directory listing, no docs exposed
 
 See `HIPAA.md` for the full compliance gap analysis and roadmap.
 
@@ -128,13 +128,20 @@ python3 -m http.server 8080
 - **Retro** — the original Windows 2000 / AIM look: title bar, buddy list, tabbed chat windows, `[12:34] nick: text` lines.
 - **Screen saver** (retro): when the session locks, a DVD-player-style *woofr.chat* logo bounces around a black screen, changing colour off each wall (watch for the corner). Any key or click brings back the unlock prompt; it returns after a minute untouched. *Settings → Theme* has *Preview* and *(None)*, and it holds still for people who've asked for reduced motion.
 - **Light and dark** for both themes. *Automatic* (the default) follows the system setting; *Light* or *Dark* overrides it.
-- Switch on the sign-in screen or in **Settings**. Only the theme and light/dark choice are remembered (`localStorage`, keys `woofr.theme`, `woofr.mode` and `woofr.screensaver`); they're applied before first paint.
+- Switch on the sign-in screen or in **Settings**. Only the theme and light/dark choice are remembered (`localStorage`, keys `woofr.theme`, `woofr.mode`, `woofr.screensaver` and `woofr.history`); they're applied before first paint.
 
 ### Profile pictures
 
 - Contacts' pictures appear in the chat list, chat header area and next to messages (WeChat theme), read from **XEP-0084** (PEP avatars — Conversations, Monal, Dino, Gajim) with **XEP-0153** vCard avatars as the fallback (Converse and older clients).
 - **Settings → Profile picture** sets or removes yours. It's square-cropped to 192×192 PNG and published both ways, so every kind of client sees it. The rest of your vCard is kept.
 - Pictures only ever come from the XMPP server — avatars that point at an outside URL are ignored. Each is checked against its SHA-1, must be PNG/JPEG/GIF/WebP and at most 512 KB, and is redrawn on a canvas (dropping EXIF and other metadata) before it's shown. They're held in memory only and wiped on sign-out.
+
+### Message history
+
+- Chats are kept **on this device** so they're there when you sign back in — **encrypted with your password** (the same PBKDF2-derived key as the OMEMO keys), one IndexedDB record per conversation, keyed by a hash so the database doesn't name your contacts.
+- Messages are **deleted automatically** after the retention period: 30 days by default; 7, 30 or 90 days, or *Don't keep*, under **Settings → Message history**. Each message shows how long it has left — "⏳ 12 days left" on the time stamps in the WeChat theme, `⏳12d` on each line in retro — and hovering shows the exact date.
+- It has to be local: OMEMO message keys are single-use, so history can't be re-fetched from the server and decrypted again.
+- *Don't keep* deletes what's saved and stops saving; *Remove this device's keys and history* (Settings → Shared computer?) deletes it along with the keys. A second tab for the same account shows the history but doesn't write it.
 
 ### Status
 
@@ -167,7 +174,7 @@ Messages are encrypted with **OMEMO** ([XEP-0384](https://xmpp.org/extensions/xe
 - **HTTPS only** — sign-in is disabled (with a warning) unless the page is a secure context (HTTPS, or `localhost` for development)
 - **Lock after 5 minutes** idle — the app is hidden behind a password prompt; the connection stays up. 5 wrong passwords signs you out
 - **Sign-out after 15 minutes** idle, even if locked
-- **Everything is wiped** on any session end — sign-out, timeout, failed unlock, or a dropped connection. (The only thing left behind is the password-encrypted OMEMO key store, which never holds message text.)
+- **Everything is wiped** on any session end — sign-out, timeout, failed unlock, or a dropped connection. (What stays behind is encrypted under the password: the OMEMO keys and, unless turned off, the message history — which deletes itself after the retention period.)
 - The password field is cleared as soon as sign-in starts, and the password isn't kept in memory (unlock checks a PBKDF2 hash)
 
 See `HIPAA.md` for the reasoning.
@@ -271,7 +278,7 @@ All sounds are synthesised via the **Web Audio API** — no audio files needed.
 ## Known Issues & Future Work
 
 - **SASL PLAIN only** — credentials sent base64-encoded; HTTPS is mandatory in production. SCRAM-SHA-1/SHA-256 support needs a Strophe plugin or library upgrade.
-- **No message history** — XEP-0313 (MAM) not implemented; chat log is session-only.
+- **No server-side history** — XEP-0313 (MAM) isn't used: history is kept on each device instead (see *Message history*), so a new device starts empty.
 - **No message carbons** — XEP-0280 not implemented, so messages you send from another device don't show up here (they *are* encrypted for your other devices, so those can read what you send from here).
 - **No multi-user chat** — XEP-0045 (MUC) not implemented, so no group OMEMO either.
 - **OMEMO library** — `libsignal-protocol-typescript` is a community TypeScript port of Signal's protocol, not Signal's own code, and hasn't had a public audit. Its PreKey receive path skips the identity check (a missing `await`); `omemo.js`'s key store refuses changed keys itself to close that gap. It is **GPL-3.0**: serving it to browsers is distribution, so the client as a whole needs to be GPL-compatible.
@@ -297,6 +304,7 @@ app.js
 ├── Avatars          avatar / paintAvatar, onAvatarMetadata (XEP-0084), onVcardUpdate (XEP-0153), setOwnAvatar
 ├── Status           setMyStatus / renderOwnStatus / statusSection; auto-away while locked
 ├── Screen saver     startScreensaver / stopScreensaver / onSaverInput (retro lock screen)
+├── History          loadHistory / recordMessage / sweepExpired / paintExpiry / historySection
 ├── State            conn, myJid, buddies{}, chatWindows{}, activeChat, nudgeTimestamps{}
 ├── Auth             doLogin (also opens the OMEMO vault) / onConnectStatus / onConnected
 ├── Disco / caps     computeCapsVer / sendPresence / onDiscoInfo
@@ -311,8 +319,10 @@ app.js
 ├── Inactivity       noteActivity / checkIdle / lockSession / doUnlock
 └── Teardown         endSession — the single exit path; wipes all PHI
 
+history.js           Conversation history: one encrypted IndexedDB record per chat, retention, purge
+
 omemo.js
-├── Vault            password-encrypted IndexedDB record per account (openVault)
+├── Vault            password-encrypted IndexedDB record per account (openVault); seal/open for history
 └── Session          key generation, PEP device lists + bundles, encrypt / decrypt, trust, forget
 
 vendor/strophe.umd.min.js   Strophe.js 1.6.2 (+ its MIT licence alongside)
