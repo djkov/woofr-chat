@@ -125,6 +125,8 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 @media (max-width: 768px) { .help-row { grid-template-columns: 1fr 1fr; } .help-name { grid-column: 1 / -1; } }
 .help-key { display: block; font-weight: 400; font-size: 10px; opacity: 0.65; }
 .help-note { font-size: 11px; opacity: 0.75; margin-top: 8px; line-height: 1.4; }
+.fmt-group { display: contents; }
+.fmt-toggle { display: none; }
 .toolbar-sep { width: 1px; align-self: stretch; margin: 3px 4px; background: rgba(127, 127, 127, 0.35); flex-shrink: 0; }
 .chat-toolbar { flex-wrap: wrap; }
 /* Under the input: the Markdown hint and the character counter */
@@ -1547,4 +1549,42 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
   --send-bg: #2e2e2e;        --send-hover: #3a3a3a;
   --shadow-soft: rgba(0, 0, 0, 0.4); --shadow: rgba(0, 0, 0, 0.6);
   --scroll-thumb: rgba(255, 255, 255, 0.15); --backdrop: rgba(0, 0, 0, 0.6);
+}
+
+
+/* Desktop: the Aa toggle isn't needed (the theme rules for toolbar buttons would otherwise show it). */
+[data-theme] .chat-toolbar .fmt-toggle { display: none; }
+
+/* ══ Phone composer ═══════════════════════════════════════════════════════
+ * Input and Send first; one compact row of tools below; formatting tucked
+ * behind "Aa". Higher specificity than the theme rules, and last, on purpose.
+ */
+@media (max-width: 768px) {
+  [data-theme] .chat-input-area { padding-top: 6px; gap: 4px; }
+  [data-theme] .chat-input-area .chat-input-row { order: 1; }
+  [data-theme] .chat-input-area .priority-note { order: 0; }
+  [data-theme] .chat-input-area .attach-tray { order: 0; }
+  [data-theme] .chat-input-area .chat-toolbar {
+    order: 2; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0; padding: 0; border: none;
+  }
+  [data-theme] .chat-input-area .compose-meta { order: 3; min-height: 0; }
+  [data-theme] .chat-input-area .compose-meta:not(:has(.char-count:not(:empty))):not(:has(.expand-link:not([hidden]))) { display: none; }
+  [data-theme] .chat-toolbar .fmt-toggle {
+    display: flex; align-items: center; justify-content: center; font: inherit; font-size: 15px; font-weight: 700;
+  }
+  [data-theme] .chat-toolbar .fmt-toggle[aria-pressed="true"] { color: var(--green-dark, var(--r-accent)); }
+  [data-theme] .chat-toolbar .fmt-group { display: none; }
+  [data-theme] .chat-toolbar.fmt-open .fmt-group {
+    display: flex; flex: 1 0 100%; order: -1; justify-content: space-between; padding: 2px 0 6px; margin-bottom: 4px;
+    border-bottom: 1px solid rgba(127, 127, 127, 0.25);
+  }
+  [data-theme] .chat-toolbar .toolbar-sep, [data-theme] .chat-toolbar .toolbar-spacer, [data-theme] .chat-toolbar .keys-btn { display: none !important; }
+  [data-theme] .chat-toolbar .enc-btn { margin-left: 0; padding: 0 6px; }
+  [data-theme] .chat-toolbar .enc-btn span { display: none; }
+  [data-theme] .chat-toolbar .enc-btn .icon { font-size: 18px; }
+  [data-theme] .chat-toolbar button { min-width: 38px; height: 38px; }
+  [data-theme] .chat-toolbar .kaomoji-btn { font-size: 12px; min-width: 44px; }
+  [data-theme] .hint-link { display: none; }
+  [data-theme] .expand-link { font-size: 12px; }
+  [data-theme] .kaomoji-menu, [data-theme] .format-help { left: 0; right: 0; width: auto; max-height: 45vh; }
 }
