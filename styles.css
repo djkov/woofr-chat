@@ -161,6 +161,14 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 .compose-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .compose-foot .char-count { margin-right: auto; }
 .compose-hint { font-size: 11px; opacity: 0.6; }
+/* Session notice: connection lost, or the session is about to end */
+#session-banner { display: flex; align-items: center; justify-content: center; gap: 12px; flex-shrink: 0; padding: 6px 12px; flex-wrap: wrap; }
+#session-banner[hidden] { display: none; }
+[data-theme="wechat"] #session-banner { background: var(--err-bg); color: var(--red); font-size: 13px; }
+[data-theme="wechat"] #session-banner .btn { padding: 4px 12px; font-size: 12px; }
+[data-theme="retro"] #session-banner { background: var(--r-note-bg); color: var(--r-red); border-top: 1px solid var(--r-note-line); font-size: 11px; font-weight: bold; }
+[data-theme="retro"] #session-banner .btn { padding: 1px 8px; font-size: 10px; }
+.device-actions input[type="range"] { flex: 1 1 160px; min-width: 120px; }
 /* Priority mode: the Send button turns red and a note says what will happen */
 .priority-note { font-size: 12px; line-height: 1.4; padding: 5px 8px; border-left: 3px solid #d33; margin: 2px 0; }
 .priority-send-btn.active, .prio-toggle.active { outline: 2px solid #d33; outline-offset: -2px; }

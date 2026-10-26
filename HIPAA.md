@@ -34,7 +34,7 @@ Split between this client and the XMPP server. See below.
 | Encryption in transit (page) | Client | ✅ HSTS + client refuses to sign in outside a secure context (HTTPS, or localhost for dev) |
 | Encryption in transit (XMPP) | Client + server | ✅ BOSH over TLS (`https://woofr.chat:5443`) |
 | Unique user ID / authentication | Server | ⚠️ JID + password; SASL PLAIN (password reaches the server, inside TLS); no MFA |
-| Automatic logoff | Client | ✅ Lock after 5 min idle, full sign-out + wipe after 15 min |
+| Automatic logoff | Client | ⚠️ By decision: the screen locks after a configurable idle time (default 5 min), and the whole session — with a wipe — ends after a configurable 8–72 h unless the user re-enters their password. There is no idle sign-out any more. Settings are per user; there is no way to enforce a stricter policy centrally |
 | Session lock / re-auth | Client | ✅ Password re-entry; 5 failed attempts → sign-out |
 | PHI wiped on session end | Client | ✅ Every exit path (sign-out, timeout, failed unlock, dropped connection) goes through one teardown |
 | PHI in browser storage | Client | ⚠️ By choice: message history is kept on the device so chats survive sign-out — AES-GCM encrypted under the password, keyed by hashes (no contact names in the clear), deleted automatically after 7/30/90 days (default 30), or not kept at all. Keys likewise encrypted. localStorage holds only UI preferences. `Cache-Control: no-store` on everything |
@@ -54,19 +54,25 @@ Split between this client and the XMPP server. See below.
 Implemented in `app.js` / `index.html` / `nginx.conf`:
 
 1. **HTTPS enforced.** On a non-secure origin, a warning is shown and sign-in is disabled. HSTS (already present) covers repeat visits; this catches first visits and proxy misconfiguration.
-2. **Inactivity lock (5 min) and logout (15 min).**
+2. **Inactivity lock and session limit.** *(Revised later: originally lock at 5 min and sign-out at 15 min idle. See the note after this list.)*
    - Lock hides the app behind a password prompt; the connection stays up, so incoming messages still arrive and priority alerts still sound.
    - Unlock checks the password against a salted PBKDF2 (600k iterations) hash taken at sign-in — the plaintext password is not kept in memory for the session (Strophe's copy is nulled after auth too).
    - Activity while locked doesn't count, so jiggling the mouse at an unattended screen can't keep a session alive. 5 wrong passwords → sign-out.
    - Idle time is measured against the wall clock, and re-checked whenever the tab becomes visible, so throttled background tabs and sleeping laptops can't dodge it.
-   - Tunables: `LOCK_AFTER_MS`, `LOGOUT_AFTER_MS`, `MAX_UNLOCK_ATTEMPTS` at the top of `app.js`.
-3. **Wipe on session end.** `endSession()` is the single exit path: disconnects, clears chat logs, drafts, buddy list, JID, password fields, notifications, timers and in-memory state. Handlers are bound to their connection, so stanzas still in flight after teardown are dropped instead of rendered into the wiped page. A dropped connection also ends the session.
+   - Tunables: `lockMinutes()`, `sessionHours()`, `MAX_UNLOCK_ATTEMPTS` and the `RENEW_*` constants in `app.js`.
+3. **Wipe on session end.** `endSession()` is the single exit path: disconnects, clears chat logs, drafts, buddy list, JID, password fields, notifications, timers and in-memory state. Handlers are bound to their connection, so stanzas still in flight after teardown are dropped instead of rendered into the wiped page. A dropped connection no longer ends the session: see the note below.
 4. **Security fixes found during the Phase 1 review:**
    - **XSS:** roster names and JIDs were concatenated into `innerHTML` and inline `onclick="…('jid')"` handlers, with a CSP that allowed `'unsafe-inline'`. All DOM is now built with `textContent`, JS moved to `app.js`, and the CSP is `script-src 'self'`. Verified that an injected `<img onerror>` is both rendered as text and blocked by CSP.
    - **Misdirected messages:** chat elements were looked up by an id derived from the JID that only replaced `@` and `.` — so `x.y@host` and `x_y@host` collided. Reproduced against the old code: replying in `x_y`'s window sent `x.y`'s draft to `x_y`, and both conversations rendered in one window. Each window now keeps direct element references.
    - **Password left in the form:** after sign-out the password field was still filled, so the next person at a shared computer could just click Sign In. It's now cleared as soon as it's read.
    - **PHI in notifications:** priority-message text was put in a persistent OS notification (visible on lock screens, and left behind after sign-out).
    - **Third-party script:** Strophe was loaded from jsDelivr without SRI. It's now vendored (`vendor/strophe.umd.min.js`, from the npm tarball for 1.6.2, integrity-checked by npm; the unminified file is byte-identical to what jsDelivr served).
+
+**Longer sessions (added later, by decision).** Sign-out after 15 minutes idle was replaced by a session limit of 8 to 72 hours (default 72) with a password re-entry 30 minutes before it ends, because a messenger that signs people out every 15 minutes can't deliver alerts to someone who is working elsewhere. What this changes and what it doesn't:
+- **Unchanged:** the password is never stored, in memory beyond the sign-in, or on disk. It is checked against a PBKDF2 hash and with the server, then discarded. Reloading or closing the tab still ends the session and wipes the page. The idle **lock** (1, 5, 15 minutes or never — default 5) still hides everything behind the password.
+- **Changed:** an unattended, *locked* session can now stay connected for up to 72 hours instead of 15 minutes, so incoming messages and priority alerts keep arriving. An *unlocked* unattended computer is, as before, only protected by the lock timer. Setting the lock to "never" removes that protection and should not be used on shared workstations.
+- **Dropped connections** keep the chats on screen behind a *Connection lost* banner and prompt for the password to reconnect, rather than wiping. Everything on screen was already there; nothing new is stored.
+- **Policy:** these are per-user settings in `localStorage`, so an administrator cannot enforce them. If a stricter policy is required (for example an 8 h limit and a 1 minute lock), it has to come from workstation policy, or from changing the defaults in `app.js`.
 
 **Deliberately not built: client-side audit log panel.** The original plan included an in-session, user-visible, non-persisted log of sign-ins/messages. It wouldn't satisfy §164.312(b): a log that lives in the user's own browser, vanishes on reload, and can be edited from devtools isn't an audit trail. Audit controls belong on the server (Phase 3).
 
@@ -83,7 +89,8 @@ Implemented in `app.js` / `index.html` / `nginx.conf`:
 - No inline `<script>` or `on*=""` attributes; no untrusted data in `innerHTML`.
 - No third-party origins in the CSP.
 - Notifications stay content-free.
-- Any new way a session can end calls `endSession()`.
+- Any new way a session can end calls `endSession()`. (A dropped connection is not an end: it keeps the screen and asks for the password; see *Longer sessions*.)
+- The password is never stored anywhere and is discarded right after it is checked. Renewal and reconnect take it from the user each time.
 
 ---
 

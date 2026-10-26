@@ -128,7 +128,7 @@ python3 -m http.server 8080
 - **Retro** — the original Windows 2000 / AIM look: title bar, buddy list, tabbed chat windows, `[12:34] nick: text` lines.
 - **Screen saver** (retro): when the session locks, a DVD-player-style *woofr.chat* logo bounces around a black screen, changing colour off each wall (watch for the corner). Any key or click brings back the unlock prompt; it returns after a minute untouched. *Settings → Theme* has *Preview* and *(None)*, and it holds still for people who've asked for reduced motion.
 - **Light and dark** for both themes. *Automatic* (the default) follows the system setting; *Light* or *Dark* overrides it.
-- Switch on the sign-in screen or in **Settings**. Only the theme and light/dark choice are remembered (`localStorage`, keys `woofr.theme`, `woofr.mode`, `woofr.screensaver`, `woofr.history` and `woofr.enter`); they're applied before first paint.
+- Switch on the sign-in screen or in **Settings**. Only the theme and light/dark choice are remembered (`localStorage`, keys `woofr.theme`, `woofr.mode`, `woofr.screensaver`, `woofr.history`, `woofr.enter`, `woofr.session.hours` and `woofr.lock.minutes`); they're applied before first paint.
 
 ### Names
 
@@ -203,9 +203,11 @@ Messages are encrypted with **OMEMO** ([XEP-0384](https://xmpp.org/extensions/xe
 ### Session security
 
 - **HTTPS only** — sign-in is disabled (with a warning) unless the page is a secure context (HTTPS, or `localhost` for development)
-- **Lock after 5 minutes** idle — the app is hidden behind a password prompt; the connection stays up. 5 wrong passwords signs you out
-- **Sign-out after 15 minutes** idle, even if locked
-- **Everything is wiped** on any session end — sign-out, timeout, failed unlock, or a dropped connection. (What stays behind is encrypted under the password: the OMEMO keys and, unless turned off, the message history — which deletes itself after the retention period.)
+- **Session length: 8 to 72 hours** (default 72, **Settings → Session**), counted from sign-in. **30 minutes before it ends** a prompt asks for your password again; it's checked here and with the server (on a short-lived second connection that never announces presence), and a correct one starts a fresh full session. *Not now* brings it back every 5 minutes; if nobody renews, the session ends at the deadline and everything is wiped. When the screen is locked, unlocking renews it.
+- **Lock the screen after 1, 5 (default) or 15 minutes idle, or never** (**Settings → Session**) — the app is hidden behind a password prompt; the connection stays up so alerts still arrive. 5 wrong passwords signs you out. There is no idle sign-out any more: the session limit replaces it.
+- **If the connection drops** (network change, server restart, a phone suspending the page) the chats **stay on screen** with a *Connection lost* banner and a password prompt; the password reconnects and carries on, and anything typed meanwhile is kept. Failing to reach the server doesn't use up a password attempt.
+- **The password is never stored**: not in the page, storage or a cookie. It's used once to check it (against a PBKDF2 hash made at sign-in, and with the server) and discarded. So **reloading or closing the tab ends the session** — it can't be resumed without a stored credential. On phones, a page suspended in the background may be dropped by the browser: you'll be asked for the password when you come back.
+- **Everything is wiped** on any session end — sign-out, expiry, failed attempts, or cancelling. (What stays behind is encrypted under the password: the OMEMO keys and, unless turned off, the message history — which deletes itself after the retention period.)
 - The password field is cleared as soon as sign-in starts, and the password isn't kept in memory (unlock checks a PBKDF2 hash)
 
 See `HIPAA.md` for the reasoning.
