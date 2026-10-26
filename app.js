@@ -338,7 +338,8 @@ async function loadHistory(c, vault) {
   for (const [jid, msgs] of loaded) {
     const last = msgs[msgs.length - 1];
     const b = buddies[jid] || (buddies[jid] = { show: 'offline' });
-    b.preview = (last.kind === 'priority' ? '[Priority] ' : '') + last.text.split('\n')[0].slice(0, 80);
+    b.preview = last.kind === 'media' ? mediaPreview(last.text)
+      : (last.kind === 'priority' ? '[Priority] ' : '') + last.text.split('\n')[0].slice(0, 80);
     b.time = fmtListTime(last.ts);
   }
   renderBuddyList();
@@ -893,8 +894,8 @@ function onConnected() {
   // roster to tell contacts we added from strangers.
   c.sendIQ(
     $iq({type: 'get'}).c('query', {xmlns: Strophe.NS.ROSTER}),
-    live(iq => { onRoster(iq); sendPresence(c); loadOwnAvatar(c); loadOwnName(c); }),
-    live(() => { sendPresence(c); loadOwnAvatar(c); loadOwnName(c); })
+    live(iq => { onRoster(iq); sendPresence(c); loadOwnAvatar(c); loadOwnName(c); discoverUploads(c); }),
+    live(() => { sendPresence(c); loadOwnAvatar(c); loadOwnName(c); discoverUploads(c); })
   );
 
   startIdleTimer();
@@ -1353,8 +1354,9 @@ async function handleMessage(c, msg) {
   if (attention) onAttention(from, text, opts);
   else if (text !== null) {
     if (!chatWindows[from]) createChatWindow(from);
-    const row = appendMsg(from, from, text, 'them', opts);
-    recordMessage(from, { dir: 'in', kind: 'msg', text, ts: +row.dataset.ts, enc: opts.encrypted, untrusted: opts.untrusted });
+    const link = mediaLink(text, opts.encrypted);
+    const row = appendMsg(from, from, text, 'them', link ? { ...opts, media: link } : opts);
+    recordMessage(from, { dir: 'in', kind: link ? 'media' : 'msg', text, ts: +row.dataset.ts, enc: opts.encrypted, untrusted: opts.untrusted });
   }
 }
 
@@ -1403,6 +1405,8 @@ function createChatWindow(jid) {
         <button data-fmt="**" title="Bold"><b>B</b></button>
         <button data-fmt="_" title="Italic"><i>I</i></button>
         <button class="smiley-btn t-retro" title="Smiley">:)</button>
+        <button class="attach-btn" title="Send a file or photo">&#128206;<span class="lbl"> Attach</span></button>
+        <input type="file" class="attach-input" multiple hidden>
         <button class="nudge-btn" title="Send Nudge (XEP-0224)">&#128293;<span class="lbl"> Nudge!</span></button>
         <button class="priority-send-btn" title="Priority Message">&#9888;<span class="lbl"> Priority</span></button>
         <span class="toolbar-spacer"></span>
@@ -1428,6 +1432,18 @@ function createChatWindow(jid) {
   win.querySelector('.send-btn').onclick          = () => sendMsg(jid);
   win.querySelector('.clear-btn').onclick         = () => { input.value = ''; };
   win.querySelector('.keys-btn').onclick          = () => openEncryptionDetails(jid);
+  const picker = win.querySelector('.attach-input');
+  win.querySelector('.attach-btn').onclick = () => picker.click();
+  picker.onchange = () => { [...picker.files].forEach(f => sendAttachment(jid, f)); picker.value = ''; };
+  // Dropped or pasted files are easy to send by accident, so ask first.
+  const askAndSend = files => {
+    if (!files.length) return;
+    const names = files.map(f => f.name || 'pasted image').join(', ');
+    if (confirm('Send ' + (files.length === 1 ? names : files.length + ' files') + ' to ' + displayName(jid) + '?')) files.forEach(f => sendAttachment(jid, f));
+  };
+  win.ondragover = e => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); };
+  win.ondrop = e => { if (e.dataTransfer?.files.length) { e.preventDefault(); askAndSend([...e.dataTransfer.files]); } };
+  input.onpaste = e => { const files = [...(e.clipboardData?.files || [])]; if (files.length) { e.preventDefault(); askAndSend(files); } };
   encBtn.onclick                                  = () => toggleEncryption(jid);
   wins.appendChild(win);
 
@@ -1437,13 +1453,16 @@ function createChatWindow(jid) {
   if (past?.length) {
     for (const m of past) {
       const opts = { ts: m.ts, encrypted: m.enc, untrusted: m.untrusted, restored: true };
+      const link = m.kind === 'media' ? mediaLink(m.text, m.enc) : null;
       if (m.kind === 'priority') appendPriorityRow(jid, m.dir === 'out' ? ownName() : displayName(jid), m.text, opts);
+      else if (link) appendMsg(jid, m.dir === 'out' ? myJid : jid, m.text, m.dir === 'out' ? 'me' : 'them', { ...opts, media: link, manual: true });
       else appendMsg(jid, m.dir === 'out' ? myJid : jid, m.text, m.dir === 'out' ? 'me' : 'them', opts);
     }
   } else {
     appendMsg(jid, null, 'Conversation with ' + displayName(jid) + ' started at ' + now(), 'system');
   }
   refreshChatEncryption(jid);
+  refreshAttachButtons();
   checkOmemoSupport(jid);
 
   // Show tabs, hide placeholder on first chat
@@ -1533,12 +1552,14 @@ function appendMsg(jid, from, text, type, opts = {}) {
     if (opts.encrypted) meta.append(el('span', 'msg-lock', '🔒'), ' ');
     meta.append(el('span', 'nick', (mine ? ownName() : displayName(from)) + ':'), ' ');
     const main = el('div', 'msg-main');
-    main.append(meta, el('div', 'bubble', text));
+    const bubble = el('div', 'bubble' + (opts.media ? ' media-bubble' : ''));
+    if (opts.media) bubble.appendChild(mediaNode(opts.media, opts)); else bubble.textContent = text;
+    main.append(meta, bubble);
     if (!opts.encrypted) main.append(el('span', 'msg-flag plain', 'Not encrypted'));
     else if (opts.untrusted) main.append(el('span', 'msg-flag untrusted', 'From an unverified device'));
     row.append(avatar(mine ? myJid : jid), main);
     paintExpiry(row, ts);
-    if (!opts.restored) updatePreview(jid, text, !mine);
+    if (!opts.restored) updatePreview(jid, opts.media ? mediaPreview(text, opts.media) : text, !mine);
   }
   log.appendChild(row);
   log.scrollTop = log.scrollHeight;
@@ -1743,6 +1764,169 @@ function fmtWrap(ta, ch) {
   const sel = ta.value.slice(s, end);
   ta.setRangeText(ch + sel + ch, s, end, 'end');
   ta.focus();
+}
+
+// ── Files and media (media.js) ────────────────────────────────────────────
+// Sent as encrypted uploads (see media.js). Received ones are fetched from
+// our own server only. Photos load by themselves; everything else waits for a
+// click, as does anything restored from history. Decrypted files live in
+// memory for the session and are never written to disk by the app.
+let uploadSvc  = null;       // { jid, max } once the server's upload service is found
+let mediaCache = new Map();  // link text -> Promise<Uint8Array>
+let mediaUrls  = new Set();  // blob: URLs we've made, revoked on sign-out
+
+function discoverUploads(c) {
+  Media.discover(stanza => iqP(c, stanza), myJid.split('@')[1])
+    .then(svc => { if (c === conn) { uploadSvc = svc; refreshAttachButtons(); } })
+    .catch(() => { /* no upload service */ });
+}
+
+function refreshAttachButtons() {
+  Object.values(chatWindows).forEach(chat => {
+    const b = chat.win.querySelector('.attach-btn');
+    b.disabled = !uploadSvc;
+    b.title = uploadSvc ? 'Send a file or photo (up to ' + fmtSize(uploadSvc.max) + ')' : 'File sharing isn\'t available on this server';
+  });
+}
+
+function fmtSize(n) {
+  return n >= 1048576 ? (n / 1048576).toFixed(n >= 10485760 ? 0 : 1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+}
+
+// A message body that's a file link (ours, from our own server), or null.
+function mediaLink(text, encrypted) {
+  const link = Media.parseLink(text) || (!encrypted ? Media.parsePlain(text) : null);
+  if (!link) return null;
+  if (!link.key && (Media.kindOf(link.ext) === 'file' || !Media.hostAllowed(link.host, myJid.split('@')[1]))) return null;
+  return link;
+}
+
+const MEDIA_NAMES = { image: 'Photo', audio: 'Audio', video: 'Video', file: 'File' };
+function mediaPreview(text, link) {
+  link = link || Media.parseLink(text) || Media.parsePlain(text);
+  return '[' + MEDIA_NAMES[Media.kindOf(link?.ext)] + ']';
+}
+
+function mediaNode(link, opts) {
+  const box  = el('div', 'media');
+  const kind = Media.kindOf(link.ext);
+  const key  = link.url + '#' + (link.key ? link.name : '');
+
+  const show = bytes => {
+    const type = kind === 'file' ? 'application/octet-stream' : Media.mimeOf(link.ext);
+    const url = URL.createObjectURL(new Blob([bytes], { type }));
+    mediaUrls.add(url);
+    let node;
+    if (kind === 'image') {
+      node = el('img', 'media-img');
+      node.alt = 'Photo';
+      node.src = url;
+      node.onclick = () => openLightbox(url);
+    } else if (kind === 'audio' || kind === 'video') {
+      node = el(kind, 'media-' + kind);
+      node.controls = true;
+      node.preload = 'metadata';
+      node.src = url;
+    } else {
+      node = el('a', 'media-file', '⬇ ' + (link.ext ? link.ext.toUpperCase() + ' file' : 'File') + ' · ' + fmtSize(bytes.length));
+      node.href = url;
+      node.download = link.name;
+    }
+    box.replaceChildren(node);
+    const log = box.closest('.chat-log');
+    if (log && kind === 'image') node.onload = () => { log.scrollTop = log.scrollHeight; };
+  };
+
+  if (link.local) { show(link.local); return box; }
+
+  if (!Media.hostAllowed(link.host, myJid.split('@')[1])) {
+    box.appendChild(el('span', 'media-note', 'Not loaded: this file is hosted outside your server.'));
+    return box;
+  }
+
+  const load = async () => {
+    box.replaceChildren(el('span', 'media-note', 'Loading…'));
+    try {
+      if (!mediaCache.has(key)) {
+        const p = Media.download(link, Media.MAX_BYTES);
+        mediaCache.set(key, p);
+        p.catch(() => mediaCache.delete(key));
+      }
+      const bytes = await mediaCache.get(key);
+      if (box.isConnected || conn) show(bytes);
+    } catch (e) {
+      box.replaceChildren(el('span', 'media-note media-error', 'Couldn\'t load: ' + e.message + '.'));
+      const retry = el('button', 'btn', 'Try again');
+      retry.onclick = load;
+      box.appendChild(retry);
+    }
+  };
+
+  if (kind === 'image' && !opts.manual) { load(); return box; }
+  const label = { image: 'Show photo', audio: 'Play audio', video: 'Load video', file: 'Download file' }[kind];
+  const btn = el('button', 'btn media-load', label);
+  btn.onclick = load;
+  box.appendChild(btn);
+  return box;
+}
+
+function openLightbox(url) {
+  const box = document.getElementById('lightbox');
+  box.querySelector('img').src = url;
+  box.hidden = false;
+}
+
+function closeLightbox() {
+  const box = document.getElementById('lightbox');
+  box.hidden = true;
+  box.querySelector('img').removeAttribute('src');
+}
+
+async function sendAttachment(jid, file) {
+  const chat = chatWindows[jid];
+  if (!chat || !conn) return;
+  if (!uploadSvc) { appendMsg(jid, null, '⚠ This server doesn\'t offer file sharing.', 'nudge-error'); return; }
+  const limit = Math.min(uploadSvc.max, Media.MAX_BYTES);
+  if (file.size > limit) { appendMsg(jid, null, '⚠ ' + (file.name || 'That file') + ' is too large (the limit is ' + fmtSize(limit) + ').', 'nudge-error'); return; }
+
+  const c = conn, encrypt = chat.encrypt;
+  let blob = file, ext = Media.extOf(file.name) || (file.type.split('/')[1] || '').replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase();
+  if (file.type.startsWith('image/')) ({ blob, ext } = await Media.prepareImage(file));
+  if (c !== conn) return;
+  const local = new Uint8Array(await blob.arrayBuffer());
+  const ts = Date.now();
+  const row = appendMsg(jid, myJid, '', 'me', { encrypted: encrypt, ts, media: { local, ext, name: file.name || 'file', url: '', host: '' } });
+  row.classList.add('pending');
+
+  chat.sendQueue = chat.sendQueue.then(async () => {
+    try {
+      const name = Media.newName(ext);
+      let body, stanza;
+      if (encrypt) {
+        await omemoReady;
+        if (c !== conn) return;
+        if (!omemo?.ready) throw new Error('Encryption is unavailable' + (omemoError ? ': ' + omemoError : '') + '.');
+        const { ct, secret } = await Media.encrypt(local);
+        body = Media.toLink(await Media.upload(stanza => iqP(c, stanza), uploadSvc, name, ct), secret);
+        const r = await omemo.encrypt(jid, body);
+        stanza = r.stanza;
+        noteSkipped(jid, r.skipped);
+      } else {
+        body = await Media.upload(stanza => iqP(c, stanza), uploadSvc, name, local);
+        stanza = $msg({ to: jid, type: 'chat' }).c('body').t(body).up().c('x', { xmlns: 'jabber:x:oob' }).c('url').t(body).up().up();
+      }
+      if (c !== conn) return;
+      c.send(stanza);
+      row.classList.remove('pending');
+      updatePreview(jid, mediaPreview(body), false);
+      recordMessage(jid, { dir: 'out', kind: 'media', text: body, ts, enc: encrypt, untrusted: false });
+    } catch (e) {
+      if (c !== conn) return;
+      row.classList.remove('pending');
+      row.classList.add('failed');
+      (row.querySelector('.msg-main') || row).appendChild(el('div', 'msg-failed', 'Not sent: ' + e.message));
+    }
+  });
 }
 
 // ── Dialogs: settings and encryption details ──────────────────────────────
@@ -2107,7 +2291,7 @@ async function forgetThisDevice() {
 // its own files and compares a hash with the copy it started with; if they
 // differ, a banner offers a reload. It never reloads by itself: that would
 // sign the user out mid-conversation.
-const VERSION_FILES    = ['index.html', 'app.js', 'omemo.js', 'history.js', 'styles.css'];
+const VERSION_FILES    = ['index.html', 'app.js', 'omemo.js', 'history.js', 'media.js', 'styles.css'];
 const VERSION_CHECK_MS = 5 * 60_000;
 let versionBaseline = null;
 let versionTimer    = null;
@@ -2377,6 +2561,7 @@ function endSession(reason = 'Not connected.', type = '') {
   myJid = ''; buddies = {}; chatWindows = {}; activeChat = null; nudgeTimestamps = {};
   avatars = {}; avatarImages = {}; avatarAsked = new Set(); ownVcardHash = null;
   myShow = ''; myStatusText = ''; idleAway = false; requests = new Set();
+  uploadSvc = null; mediaCache = new Map(); mediaUrls.forEach(u => URL.revokeObjectURL(u)); mediaUrls = new Set(); closeLightbox();
   myName = ''; namesAsked = new Set(); nameQueue = Promise.resolve(); sessionVault = null; historyStore = null; history = new Map(); clearInterval(expiryTimer); expiryTimer = null;
   document.getElementById('chat-subtitle').textContent = '';
   document.getElementById('my-dot').className = 'status-dot';
@@ -2454,13 +2639,18 @@ function init() {
   document.getElementById('btn-lock-sign-out').onclick = () => endSession();
   document.getElementById('inp-unlock-pass').onkeydown = e => { if (e.key === 'Enter') doUnlock(); };
   document.getElementById('modal-close').onclick       = closeModal;
+  document.getElementById('lightbox').onclick          = closeLightbox;
   document.getElementById('btn-update').onclick        = () => {
     // Reloading ends the session (everything is wiped), so ask first.
     if (!sessionActive || confirm('Reloading signs you out. Continue?')) location.reload();
   };
   startVersionCheck();
   document.getElementById('modal').onclick             = e => { if (e.target.id === 'modal') closeModal(); };
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && modalState) closeModal(); });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!document.getElementById('lightbox').hidden) closeLightbox();
+    else if (modalState) closeModal();
+  });
 
   ['pointerdown', 'keydown', 'wheel', 'touchstart', 'mousemove'].forEach(ev =>
     document.addEventListener(ev, noteActivity, { capture: true, passive: true }));
