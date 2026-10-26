@@ -5,6 +5,7 @@
 //
 //   **bold**  *italic*  _italic_  ~~strike~~  `code`  [text](https://link)
 //   ```            fenced code block
+//   # Heading           headings (# to ######)
 //   - item / 1. item   lists
 //   > quoted           quotes nest: >> a reply to a quote, >>> and so on
 //   \*             a backslash shows the next symbol literally
@@ -150,6 +151,17 @@ const Rich = (() => {
       }
 
       if (quotes.length) { quotes = []; closePara(); }
+
+      const h = /^[ \t]{0,3}(#{1,6})[ \t]+(\S.*?)(?:[ \t]+#+)?[ \t]*$/.exec(line);
+      if (h) {
+        closeList(); closePara();
+        const head = mk('div');
+        head.className = 'md-h md-h' + Math.min(h[1].length, 3);
+        inline(h[2], head);
+        root.appendChild(head);
+        blocks = true;
+        continue;
+      }
 
       const b = BULLET.exec(line), n = NUMBER.exec(line);
       if (b || n) {
