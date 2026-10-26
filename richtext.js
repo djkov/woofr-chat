@@ -6,6 +6,7 @@
 //   **bold**  *italic*  _italic_  ~~strike~~  `code`  [text](https://link)
 //   ```            fenced code block
 //   # Heading           headings (# to ######)
+//   | a | b |          tables, with a |---|---| line under the header
 //   - item / 1. item   lists
 //   > quoted           quotes nest: >> a reply to a quote, >>> and so on
 //   \*             a backslash shows the next symbol literally
@@ -98,6 +99,59 @@ const Rich = (() => {
     if (last < text.length) parent.append(text.slice(last));
   }
 
+  // ── Tables (| a | b | with a |---|---| line under the header) ──
+  const MAX_ROWS = 100, MAX_COLS = 10;
+  const SEPARATOR = /^[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
+
+  // Splits a row on | (not inside `code`, and not when written \|).
+  function splitRow(line) {
+    let s = line.trim();
+    if (s.startsWith('|')) s = s.slice(1);
+    if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1);
+    const cells = [];
+    let cur = '', tick = false;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (c === '\\' && s[i + 1] === '|') { cur += '|'; i++; }
+      else if (c === '`') { tick = !tick; cur += c; }
+      else if (c === '|' && !tick) { cells.push(cur.trim()); cur = ''; }
+      else cur += c;
+    }
+    cells.push(cur.trim());
+    return cells;
+  }
+
+  function isTableStart(lines, i) {
+    return lines[i].includes('|') && i + 1 < lines.length && lines[i + 1].includes('-') && SEPARATOR.test(lines[i + 1]) &&
+      splitRow(lines[i]).length === splitRow(lines[i + 1]).length;
+  }
+
+  // Builds the table and returns how many lines it used.
+  function table(lines, i, root) {
+    const head = splitRow(lines[i]).slice(0, MAX_COLS);
+    const align = splitRow(lines[i + 1]).slice(0, MAX_COLS).map(c => c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : '');
+    const wrap = mk('div'); wrap.className = 'md-table-wrap';
+    const t = mk('table'), thead = mk('thead'), tbody = mk('tbody');
+    const row = (cells, tag, parent) => {
+      const tr = mk('tr');
+      head.forEach((_, c) => {
+        const cell = mk(tag);
+        if (align[c]) cell.className = 'align-' + align[c];
+        inline(cells[c] ?? '', cell);
+        tr.appendChild(cell);
+      });
+      parent.appendChild(tr);
+    };
+    row(head, 'th', thead);
+    let j = i + 2;
+    for (; j < lines.length && lines[j].trim() && lines[j].includes('|') && j - i - 2 < MAX_ROWS; j++) row(splitRow(lines[j]), 'td', tbody);
+    while (j < lines.length && lines[j].trim() && lines[j].includes('|')) j++; // rows past the cap are dropped
+    t.append(thead, tbody);
+    wrap.appendChild(t);
+    root.appendChild(wrap);
+    return j - i;
+  }
+
   const QUOTE = /^((?:>[ \t]?)+)(.*)$/;
   const BULLET = /^[ \t]{0,3}[-*+][ \t]+(.*)$/;
   const NUMBER = /^[ \t]{0,3}(\d{1,3})[.)][ \t]+(.*)$/;
@@ -159,6 +213,13 @@ const Rich = (() => {
         head.className = 'md-h md-h' + Math.min(h[1].length, 3);
         inline(h[2], head);
         root.appendChild(head);
+        blocks = true;
+        continue;
+      }
+
+      if (isTableStart(lines, i)) {
+        closeList(); closePara();
+        i += table(lines, i, root) - 1;
         blocks = true;
         continue;
       }
