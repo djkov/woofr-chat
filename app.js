@@ -766,6 +766,7 @@ const ICON_QUOTE    = 'M6 17h3l2-4V7H5v6h3zm8 0h3l2-4V7h-6v6h3z';
 const ICON_LIST     = 'M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z';
 const ICON_LINK     = 'M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z';
 const ICON_HELP     = 'M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z';
+const ICON_EXPAND   = 'M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z';
 const ICON_CLOSE    = 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z';
 const ICON_CHAT     = 'M12 3C6.5 3 2 6.6 2 11c0 2.4 1.3 4.6 3.4 6.1L4.6 21l4.2-2.3c1 .2 2.1.3 3.2.3 5.5 0 10-3.6 10-8s-4.5-8-10-8z';
 
@@ -1034,7 +1035,7 @@ function refreshChatEncryption(jid) {
   chat.encBtn.className = 'enc-btn ' + cls;
   chat.encBtn.title = title;
   chat.encBtn.replaceChildren(icon(state === 'off' ? ICON_UNLOCK : ICON_LOCK), el('span', null, label));
-  chat.input.placeholder = (state === 'off' ? 'Unencrypted message to ' : 'Encrypted message to ') + displayName(jid) + '…';
+  updatePlaceholder(jid);
   if (jid === activeChat) updateChatHeader();
 }
 
@@ -1432,6 +1433,7 @@ function createChatWindow(jid) {
         <button data-fmt="list" title="List" aria-label="List">${svgHtml(ICON_LIST)}</button>
         <button data-fmt="link" title="Link (Ctrl/Cmd+K)" aria-label="Link">${svgHtml(ICON_LINK)}</button>
         <button class="help-btn" title="Formatting help" aria-label="Formatting help" aria-haspopup="true" aria-expanded="false">${svgHtml(ICON_HELP)}</button>
+        <button class="expand-btn" title="Open a larger editor" aria-label="Open a larger editor">${svgHtml(ICON_EXPAND)}</button>
         <span class="toolbar-sep"></span>
         <button class="kaomoji-btn" title="Kaomoji" aria-haspopup="true" aria-expanded="false">(^_^)</button>
         <button class="attach-btn" title="Send a file or photo">${svgHtml(ICON_CLIP)}<span class="lbl"> Attach</span></button>
@@ -1442,6 +1444,7 @@ function createChatWindow(jid) {
         <button class="enc-btn"></button>
         <button class="keys-btn" title="Encryption details">${svgHtml(ICON_KEY)} Keys</button>
       </div>
+      <div class="priority-note" role="status" hidden></div>
       <div class="chat-input-row">
         <textarea class="chat-input" spellcheck="false" autocomplete="off"></textarea>
         <div class="send-col">
@@ -1451,6 +1454,7 @@ function createChatWindow(jid) {
       </div>
       <div class="compose-meta">
         <button class="link-btn hint-link" type="button">Markdown supported · formatting help</button>
+        <button class="link-btn expand-link" type="button" hidden>Writing a lot? Open the larger editor</button>
         <span class="char-count" aria-live="polite"></span>
       </div>
     </div>`;
@@ -1462,9 +1466,11 @@ function createChatWindow(jid) {
   win.querySelectorAll('[data-fmt]').forEach(b => { b.onclick = () => { applyFormat(input, b.dataset.fmt); updateCounter(jid); }; });
   win.querySelector('.help-btn').onclick = e => { e.stopPropagation(); togglePopover(jid, 'help'); };
   win.querySelector('.hint-link').onclick = e => { e.stopPropagation(); togglePopover(jid, 'help'); };
+  win.querySelector('.expand-btn').onclick = () => openEditor(jid);
+  win.querySelector('.expand-link').onclick = () => openEditor(jid);
   input.oninput = () => updateCounter(jid);
   win.querySelector('.nudge-btn').onclick         = () => sendNudge(jid);
-  win.querySelector('.priority-send-btn').onclick = () => sendPriorityMsg(jid);
+  win.querySelector('.priority-send-btn').onclick = () => setPriority(jid, !chatWindows[jid].priority);
   win.querySelector('.send-btn').onclick          = () => sendMsg(jid);
   win.querySelector('.clear-btn').onclick         = () => { input.value = ''; };
   win.querySelector('.keys-btn').onclick          = () => openEncryptionDetails(jid);
@@ -1482,7 +1488,7 @@ function createChatWindow(jid) {
   wins.appendChild(win);
 
   if (!buddies[jid]) buddies[jid] = { show: 'offline' }; // so the chat is reachable from the list
-  chatWindows[jid] = { tab, win, log, input, encBtn, staged: [], tray: win.querySelector('.attach-tray'), kaomoji: win.querySelector('.kaomoji-menu'), help: win.querySelector('.format-help'), encrypt: true, sendQueue: Promise.resolve(), lastStamp: 0, noOmemoNoted: false };
+  chatWindows[jid] = { tab, win, log, input, encBtn, staged: [], priority: false, tray: win.querySelector('.attach-tray'), kaomoji: win.querySelector('.kaomoji-menu'), help: win.querySelector('.format-help'), encrypt: true, sendQueue: Promise.resolve(), lastStamp: 0, noOmemoNoted: false };
   const past = history.get(jid);
   if (past?.length) {
     for (const m of past) {
@@ -1625,9 +1631,39 @@ async function sendMsg(jid) {
     renderTray(jid);
     for (const s of staged) { URL.revokeObjectURL(s.thumb); mediaUrls.delete(s.thumb); await sendAttachment(jid, s.file); }
   }
-  sendText(jid, false);
+  sendText(jid, chat.priority);
 }
-function sendPriorityMsg(jid) { sendText(jid, true); }
+
+// Priority is a mode, not an action: the button arms it, the Send button
+// (now red) sends it, and it switches itself off afterwards.
+function setPriority(jid, on) {
+  const chat = chatWindows[jid];
+  if (!chat) return;
+  chat.priority = !!on;
+  const btn  = chat.win.querySelector('.priority-send-btn');
+  const send = chat.win.querySelector('.send-btn');
+  const note = chat.win.querySelector('.priority-note');
+  btn.classList.toggle('active', chat.priority);
+  btn.setAttribute('aria-pressed', String(chat.priority));
+  send.classList.toggle('priority', chat.priority);
+  send.textContent = chat.priority ? 'Send priority' : 'Send';
+  note.hidden = !chat.priority;
+  note.textContent = chat.priority
+    ? 'Priority message: ' + displayName(jid) + '\'s device will sound a repeating alert until they mark it as read. Press Priority again, or Esc, to cancel.'
+    : '';
+  updatePlaceholder(jid);
+  if (modalState?.kind === 'compose' && modalState.jid === jid && modalState.onPriority) modalState.onPriority();
+  if (chat.priority) chat.input.focus();
+}
+
+function updatePlaceholder(jid) {
+  const chat = chatWindows[jid];
+  if (!chat) return;
+  const to = displayName(jid) + '…';
+  chat.input.placeholder = chat.priority ? 'Priority message to ' + to
+    : chat.staged.length ? 'Add a message (optional)…'
+    : (encryptionState(jid) === 'off' ? 'Unencrypted message to ' : 'Encrypted message to ') + to;
+}
 
 function sendText(jid, priority) {
   const chat = chatWindows[jid];
@@ -1636,6 +1672,7 @@ function sendText(jid, priority) {
   if (tooLong(text)) { updateCounter(jid); return; }
   chat.input.value = '';
   updateCounter(jid);
+  if (priority) setPriority(jid, false);
   chat.input.focus();
 
   const c = conn;
@@ -1680,6 +1717,7 @@ function chatKey(e, jid) {
     const kind = { b: 'bold', i: 'italic', k: 'link' }[e.key.toLowerCase()];
     if (kind) { e.preventDefault(); applyFormat(chatWindows[jid].input, kind); updateCounter(jid); return; }
   }
+  if (e.key === 'Escape' && chatWindows[jid].priority) { e.preventDefault(); setPriority(jid, false); return; }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMsg(jid);
@@ -1869,6 +1907,11 @@ function updateCounter(jid) {
     : n >= MAX_MESSAGE * 0.8 ? n.toLocaleString() + ' / ' + MAX_MESSAGE.toLocaleString() : '';
   note.classList.toggle('over', over);
   send.disabled = over;
+  // The input grows with what's typed (up to a point); past that, offer the big editor.
+  const ta = chat.input;
+  ta.style.height = '';
+  if (ta.scrollHeight > ta.clientHeight) ta.style.height = Math.min(ta.scrollHeight + 2, 170) + 'px';
+  chat.win.querySelector('.expand-link').hidden = !(n > 240 || ta.value.split('\n').length > 3);
 }
 
 // ── The formatting toolbar ────────────────────────────────────────────────
@@ -2061,9 +2104,7 @@ function renderTray(jid) {
   if (!chat) return;
   chat.tray.replaceChildren();
   chat.tray.hidden = !chat.staged.length;
-  chat.input.placeholder = chat.staged.length
-    ? 'Add a message (optional)…'
-    : (encryptionState(jid) === 'off' ? 'Unencrypted message to ' : 'Encrypted message to ') + displayName(jid) + '…';
+  updatePlaceholder(jid);
   chat.staged.forEach((s, i) => {
     const item = el('div', 'tray-item');
     if (s.thumb) { const t = el('img', 'tray-thumb'); t.alt = ''; t.src = s.thumb; item.appendChild(t); }
@@ -2142,6 +2183,7 @@ const FORMAT_HELP = [
   ['`code`', 'Code', ''],
   ['[text](https://example.org)', 'Link', 'Ctrl/Cmd + K'],
   ['> quoted\n>> reply to it', 'Quote, nested', 'or press Reply on a message'],
+  ['# Heading', 'Heading', ''],
   ['- one\n- two', 'List', ''],
   ['```\ncode block\n```', 'Code block', ''],
 ];
@@ -2229,6 +2271,7 @@ let modalToken = 0;
 
 function showModal(state) {
   modalState = state;
+  document.querySelector('.modal-window').classList.toggle('modal-wide', state.kind === 'compose');
   document.getElementById('modal').hidden = false;
   renderModal();
   document.getElementById('modal-close').focus();
@@ -2237,6 +2280,7 @@ function showModal(state) {
 function closeModal() {
   modalState = null;
   modalToken++;
+  document.querySelector('.modal-window').classList.remove('modal-wide');
   document.getElementById('modal').hidden = true;
   document.getElementById('modal-title').textContent = '';
   document.getElementById('modal-body').replaceChildren();
@@ -2250,12 +2294,15 @@ function section(title) {
 
 function renderModal() {
   if (!modalState) return;
+  // The editor holds what's being typed: never rebuild it under the cursor.
+  if (modalState.kind === 'compose' && modalState.built) return;
   const token = ++modalToken;
   const body = document.getElementById('modal-body');
   body.replaceChildren();
   if (modalState.kind === 'settings') renderSettings(body, token);
   else if (modalState.kind === 'about') renderAbout(body);
   else if (modalState.kind === 'message') renderFullMessage(body);
+  else if (modalState.kind === 'compose') { renderEditor(body); modalState.built = true; }
   else renderContactSecurity(body, modalState.jid, token);
 }
 
@@ -2282,6 +2329,97 @@ function aboutSection() {
     .forEach(([text, href]) => { const li = el('li'); li.appendChild(link(text, href)); links.appendChild(li); });
   s.appendChild(links);
   return s;
+}
+
+// ── The larger editor ─────────────────────────────────────────────────────
+// Edits the chat's own input box live, so closing it (or anything else
+// happening) never loses text. Write / Preview tabs show the formatted result.
+function openEditor(jid) {
+  if (!chatWindows[jid]) return;
+  closePopover();
+  showModal({ kind: 'compose', jid });
+  const area = document.querySelector('.compose-area');
+  if (area) { area.focus(); area.setSelectionRange(area.value.length, area.value.length); }
+}
+
+function renderEditor(body) {
+  const jid = modalState.jid, chat = chatWindows[jid];
+  document.getElementById('modal-title').textContent = 'Message to ' + displayName(jid);
+
+  const bar = el('div', 'compose-tools');
+  const tools = [['bold', 'Bold (Ctrl/Cmd+B)', '<b>B</b>'], ['italic', 'Italic (Ctrl/Cmd+I)', '<i>I</i>'], ['strike', 'Strikethrough', '<s>S</s>'],
+    ['code', 'Code', svgHtml(ICON_CODE)], ['quote', 'Quote', svgHtml(ICON_QUOTE)], ['list', 'List', svgHtml(ICON_LIST)], ['link', 'Link (Ctrl/Cmd+K)', svgHtml(ICON_LINK)]];
+  const tabs = el('div', 'compose-tabs');
+  const write = el('button', 'compose-tab active', 'Write');
+  const preview = el('button', 'compose-tab', 'Preview');
+  tabs.append(write, preview);
+
+  const area = el('textarea', 'compose-area');
+  area.spellcheck = false;
+  area.value = chat.input.value;
+  area.placeholder = 'Write your message. Markdown is supported — see the Preview tab.';
+  const shown = el('div', 'compose-preview long-message bubble');
+  shown.hidden = true;
+
+  const count = el('span', 'char-count');
+  const send = el('button', 'btn primary', 'Send');
+  const done = el('button', 'btn', 'Done');
+  const sync = () => {
+    chat.input.value = area.value;
+    updateCounter(jid);
+    const n = area.value.trim().length, over = n > MAX_MESSAGE;
+    count.textContent = n.toLocaleString() + ' / ' + MAX_MESSAGE.toLocaleString() + (over ? ' · too long' : '');
+    count.classList.toggle('over', over);
+    send.disabled = over || (!n && !chat.staged.length);
+    if (!shown.hidden) { shown.replaceChildren(); fillRich(shown, area.value || ' '); }
+  };
+
+  for (const [kind, title, html] of tools) {
+    const b = el('button', 'compose-fmt');
+    b.type = 'button'; b.title = title; b.setAttribute('aria-label', title);
+    b.innerHTML = html; // constants above, never user text
+    b.onclick = () => { if (!shown.hidden) setTab(true); applyFormat(area, kind); };
+    bar.appendChild(b);
+  }
+  const setTab = isWrite => {
+    area.hidden = !isWrite; shown.hidden = isWrite; bar.classList.toggle('muted-bar', !isWrite);
+    write.classList.toggle('active', isWrite); preview.classList.toggle('active', !isWrite);
+    if (isWrite) area.focus(); else sync();
+  };
+  write.onclick = () => setTab(true);
+  preview.onclick = () => setTab(false);
+
+  area.oninput = sync;
+  area.onkeydown = e => {
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
+      const kind = { b: 'bold', i: 'italic', k: 'link' }[e.key.toLowerCase()];
+      if (kind) { e.preventDefault(); applyFormat(area, kind); return; }
+      if (e.key === 'Enter') { e.preventDefault(); if (!send.disabled) send.click(); }
+    }
+  };
+  send.onclick = () => { closeModal(); sendMsg(jid); };
+  done.onclick = () => { closeModal(); chat.input.focus(); };
+
+  const prio = el('button', 'btn prio-toggle', 'Priority');
+  prio.type = 'button';
+  prio.title = 'Send as a priority message';
+  prio.onclick = () => setPriority(jid, !chat.priority);
+  const showPrio = () => {
+    prio.classList.toggle('active', chat.priority);
+    prio.setAttribute('aria-pressed', String(chat.priority));
+    send.classList.toggle('priority', chat.priority);
+    send.textContent = chat.priority ? 'Send priority' : 'Send';
+    note.hidden = !chat.priority;
+  };
+  const note = el('div', 'priority-note', 'Priority message: ' + displayName(jid) + '\'s device will sound a repeating alert until they mark it as read.');
+  note.hidden = true;
+  modalState.onPriority = showPrio;
+  const foot = el('div', 'compose-foot');
+  foot.append(count, el('span', 'compose-hint', 'Ctrl/Cmd+Enter sends'), prio, done, send);
+  body.append(el('div', 'compose-head'), bar, area, shown, note, foot);
+  body.querySelector('.compose-head').appendChild(tabs);
+  sync();
+  showPrio();
 }
 
 function renderFullMessage(body) {

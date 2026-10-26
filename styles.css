@@ -92,6 +92,9 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 .bubble pre code { padding: 0; background: none; }
 .bubble blockquote { margin: 2px 0; padding: 2px 0 2px 8px; border-left: 3px solid; }
 .bubble blockquote blockquote { margin-top: 2px; }
+.bubble .md-h { font-weight: 700; margin: 4px 0 2px; line-height: 1.3; }
+.bubble .md-h1 { font-size: 1.3em; }
+.bubble .md-h2 { font-size: 1.15em; }
 .bubble ul, .bubble ol { margin: 2px 0; padding-left: 20px; }
 .bubble a { text-decoration: underline; overflow-wrap: anywhere; }
 .bubble del { opacity: 0.7; }
@@ -133,6 +136,28 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 .send-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 /* Long messages */
 .show-full { border: none; background: none; padding: 2px 0; font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; align-self: flex-start; }
+/* The larger editor */
+.modal-window.modal-wide { width: min(880px, 100%); }
+.compose-head { display: flex; }
+.compose-tabs { display: flex; gap: 4px; }
+.compose-tab { border: none; background: none; cursor: pointer; padding: 5px 12px; font: inherit; font-size: 13px; border-bottom: 2px solid transparent; color: inherit; opacity: 0.65; }
+.compose-tab.active { opacity: 1; border-bottom-color: currentColor; font-weight: 600; }
+.compose-tools { display: flex; flex-wrap: wrap; gap: 2px; }
+.compose-tools.muted-bar { opacity: 0.4; pointer-events: none; }
+.compose-fmt { border: none; background: none; cursor: pointer; padding: 4px 8px; min-width: 30px; font: inherit; font-size: 14px; color: inherit; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+.compose-fmt:hover { background: rgba(127, 127, 127, 0.2); }
+.compose-fmt .icon { width: 1.15em; height: 1.15em; }
+.compose-area { display: block; width: 100%; height: 50vh; min-height: 240px; resize: vertical; font: inherit; font-size: 14px; line-height: 1.55; padding: 10px 12px; outline: none; color: inherit; }
+.compose-preview { min-height: 240px; height: 50vh; }
+.compose-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.compose-foot .char-count { margin-right: auto; }
+.compose-hint { font-size: 11px; opacity: 0.6; }
+/* Priority mode: the Send button turns red and a note says what will happen */
+.priority-note { font-size: 12px; line-height: 1.4; padding: 5px 8px; border-left: 3px solid #d33; margin: 2px 0; }
+.priority-send-btn.active, .prio-toggle.active { outline: 2px solid #d33; outline-offset: -2px; }
+.expand-link { font-size: 11px; text-decoration: none; opacity: 0.85; }
+.expand-link:hover { text-decoration: underline; }
+.compose-meta { flex-wrap: wrap; }
 .long-message { max-height: 55vh; overflow-y: auto; padding: 10px 12px; border-radius: 4px; }
 .reply-btn .icon, .tray-remove .icon { width: 1em; height: 1em; }
 .close-tab .icon { width: 0.9em; height: 0.9em; }
@@ -619,6 +644,13 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
 }
 [data-theme="retro"] .chat-toolbar button:hover { border-color: var(--r-shadow); background: var(--r-face); }
 [data-theme="retro"] .kaomoji-btn { font-family: inherit; font-size: 11px; }
+[data-theme="retro"] .priority-note { background: var(--r-note-bg); color: var(--r-red); border-left-color: var(--r-red); }
+[data-theme="retro"] .btn.priority, [data-theme="retro"] .btn.primary.priority { background: var(--r-red); color: #fff; }
+[data-theme="retro"] .priority-send-btn.active { background: var(--r-note-bg); border-color: var(--r-shadow) var(--r-light) var(--r-light) var(--r-shadow); }
+[data-theme="retro"] .compose-area { background: var(--r-field); border: 1px solid; border-color: var(--r-shadow) var(--r-light) var(--r-light) var(--r-shadow); font-size: 12px; }
+[data-theme="retro"] .compose-tab.active { color: var(--r-accent); }
+[data-theme="retro"] .expand-link { color: var(--r-link); }
+[data-theme="retro"] .compose-fmt:hover { background: var(--r-sel); color: var(--r-sel-text); }
 [data-theme="retro"] .format-help { background: var(--r-face); border: 2px solid; border-color: var(--r-light) var(--r-dark) var(--r-dark) var(--r-light); }
 [data-theme="retro"] .help-syntax, [data-theme="retro"] .help-shown { background: var(--r-field); border: 1px solid var(--r-line); padding: 2px 4px; }
 [data-theme="retro"] .show-full { color: var(--r-link); margin-left: 12px; font-size: 10px; display: block; }
@@ -1186,6 +1218,16 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
 [data-theme="wechat"] .kaomoji-menu { background: var(--surface); border-radius: 8px; border: 1px solid var(--line); }
 [data-theme="wechat"] .kaomoji-item:hover { background: var(--surface-2-hover); }
 [data-theme="wechat"] .kaomoji-btn { font-size: 13px; letter-spacing: 0; }
+[data-theme="wechat"] .priority-note { background: var(--err-bg); color: var(--red); border-radius: 4px; border-left-color: var(--red); }
+[data-theme="wechat"] .btn.priority, [data-theme="wechat"] .send-btn.btn.primary.priority, [data-theme="wechat"] .compose-foot .btn.primary.priority { background: var(--red); color: #fff; }
+[data-theme="wechat"] .btn.priority:hover { background: #e03e3e; }
+[data-theme="wechat"] .priority-send-btn.active { background: var(--err-bg); color: var(--red); }
+[data-theme="wechat"] .prio-toggle.active { background: var(--err-bg); color: var(--red); }
+[data-theme="wechat"] .compose-area { background: var(--surface-soft); border: 1px solid var(--line); border-radius: 6px; }
+[data-theme="wechat"] .compose-area:focus { border-color: var(--green); }
+[data-theme="wechat"] .compose-tab.active { color: var(--green-dark); }
+[data-theme="wechat"] .expand-link { color: var(--green-dark); }
+[data-theme="wechat"] .compose-foot .btn { padding: 7px 18px; }
 [data-theme="wechat"] .format-help { background: var(--surface); border-radius: 8px; border: 1px solid var(--line); }
 [data-theme="wechat"] .help-syntax { background: var(--surface-2); padding: 3px 6px; border-radius: 3px; }
 [data-theme="wechat"] .show-full { color: var(--link); }

@@ -146,6 +146,8 @@ python3 -m http.server 8080
 
 - **Markdown** in messages: `**bold**`, `*italic*` or `_italic_`, `~~strike~~`, `` `code` ``, fenced ```` ``` ```` code blocks, `- ` / `1. ` lists, and `[text](https://link)` (the link also shows its real host, since the label can say anything; only `http(s)` links work).
 - **It's discoverable:** the toolbar has bold, italic, strike, code, quote, list and link buttons (they wrap the selection, or insert a placeholder, and undo themselves if pressed again; quote and list work on whole lines). `Ctrl/Cmd+B`, `+I` and `+K` work too. A *Markdown supported · formatting help* line sits under the input, and the **?** button opens a cheat sheet that shows each syntax next to how it renders — drawn by the same code that renders messages, so it can't go out of date.
+- **A larger editor** for long messages: the expand button in the toolbar (or the *Writing a lot?* prompt that appears under the input once a message gets long) opens a big window with the formatting buttons, a **Write / Preview** switch that shows exactly how the message will look, and a live counter. It edits the chat's own input box as you go, so closing it never loses text; `Ctrl/Cmd+Enter` sends. The small input also grows as you type.
+- **Headings:** `#` to `######` at the start of a line.
 - **Limits:** a message can be **4,000 characters**. A counter appears from 3,200; above 4,000 it turns red and Send is disabled, so nothing (including attached files) goes out half-sent. Incoming messages are kept to 50,000 characters. **Long messages** (over 700 characters or 12 lines — yours or anyone's) show a shortened bubble with **Show full message**, which opens a scrollable window with the full formatted text and a **Copy text** button. Messages are rendered as DOM nodes, never HTML, and the raw text is what's sent, so other clients just see readable text.
 - **Quote threads:** lines starting with `>` are quotes and nest: `> hello`, `>> hey`, `>>> sure`. The **Reply** button on a message quotes it into the input with another `>` per line, so replying to a reply builds the thread for you.
 - **Kaomoji instead of emoji:** the `(^_^)` button opens a menu of text faces (happy, love, sad, annoyed, woof, other) inserted at the cursor. The formatter leaves them alone, so `(^_^)`, `(*^‿^*)`, `\(^o^)/` and `¯\_(ツ)_/¯` come out as typed. The interface itself uses drawn icons, not emoji.
@@ -256,7 +258,7 @@ Reads PEP avatars (metadata pushes, data fetched by hash) and vCard-based avatar
 
 ### Priority Message (XEP-0224 extended)
 
-Sends a `<message>` with both a `<body>` and `<attention>` — a message that demands immediate attention:
+Priority is a **mode**: the **Priority** button arms it (it stays pressed), the **Send** button turns red and reads *Send priority*, and a note above the input says what will happen. Press Priority again or Esc to cancel; it switches itself off after sending. (The editor window has the same toggle.) The stanza has both a `<body>` and `<attention>` — a message that demands immediate attention:
 
 ```xml
 <message to="buddy@server" type="chat">
@@ -266,7 +268,7 @@ Sends a `<message>` with both a `<body>` and `<attention>` — a message that de
 ```
 
 **Sender side:**
-- Triggered by the **⚠ Priority** button in the chat toolbar
+- Armed with the **Priority** button in the chat toolbar, sent with the (now red) Send button
 - Displayed in the sender's log with a yellow background and red border
 
 **Recipient side:**
