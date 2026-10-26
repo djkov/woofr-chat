@@ -269,7 +269,7 @@ Priority is a **mode**: the **Priority** button arms it (it stays pressed), the 
 </message>
 ```
 
-**Priority section:** unread priority messages are pinned in a red **Priority** section at the very top of the chat list, above contact requests, newest first. Each entry shows the contact, the latest priority message and a count if there are several. Tapping it opens the chat at that message; **Mark read** acknowledges all of that contact's priority messages without opening the chat. A contact leaves its normal group while it has unread priority messages and returns when they're acknowledged. (The list is rebuilt each session, so a priority message you hadn't acknowledged before closing the tab isn't re-flagged on the next sign-in.)
+**Priority section:** unread priority messages are pinned in a red **Priority** section at the very top of the chat list, above contact requests, newest first. Each entry shows the contact, the latest priority message and a count if there are several. Tapping it opens the chat at that message. There is deliberately **no way to acknowledge from the list**: an urgent message has to be opened and marked as read in the chat, so it can't be dismissed unread. A contact leaves its normal group while it has unread priority messages and returns when they're acknowledged. (The list is rebuilt each session, so a priority message you hadn't acknowledged before closing the tab isn't re-flagged on the next sign-in.)
 
 **Sender side:**
 - Armed with the **Priority** button in the chat toolbar, sent with the (now red) Send button

@@ -1258,10 +1258,9 @@ function makePriorityLi(jid, b) {
   line2.append(el('span', 'buddy-preview', Rich.plain(latest.text).slice(0, 80)));
   if (b.pending.length > 1) line2.append(el('span', 'unread-badge', String(b.pending.length)));
   info.append(line1, line2);
-  const read = el('button', 'btn priority-read', 'Mark read');
-  read.title = 'Mark all priority messages from ' + displayName(jid) + ' as read';
-  read.onclick = e => { e.stopPropagation(); [...b.pending].forEach(p => p.btn.click()); };
-  li.append(wrap, info, read);
+  // No "mark as read" here on purpose: an urgent message must be opened and
+  // acknowledged in the chat, so it can't be dismissed unread from the list.
+  li.append(wrap, info);
   li.title = jid;
   li.onclick = () => { openChat(jid); latest.row.scrollIntoView({ block: 'center' }); };
   return li;
