@@ -1754,15 +1754,40 @@ function sendText(jid, priority) {
   });
 }
 
+// Does plain Enter send? Desktop: yes (Shift+Enter is a new line). Touch
+// devices have no Shift, so there Enter is a new line and the Send button
+// sends. Settings can override either way; Ctrl/Cmd+Enter always sends.
+const ENTER_KEY = 'woofr.enter'; // 'send' | 'newline' — not PHI
+function enterSends() {
+  try {
+    const v = localStorage.getItem(ENTER_KEY);
+    if (v === 'send') return true;
+    if (v === 'newline') return false;
+  } catch { /* fall through to the default */ }
+  return !matchMedia('(pointer: coarse)').matches;
+}
+
+function setEnterSends(on) {
+  try { localStorage.setItem(ENTER_KEY, on ? 'send' : 'newline'); } catch { /* just don't remember it */ }
+}
+
+function enterHint() {
+  return enterSends() ? 'Enter sends, Shift+Enter starts a new line.' : 'Enter starts a new line; use the Send button, or Ctrl/Cmd+Enter, to send.';
+}
+
 function chatKey(e, jid) {
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
     const kind = { b: 'bold', i: 'italic', k: 'link' }[e.key.toLowerCase()];
     if (kind) { e.preventDefault(); applyFormat(chatWindows[jid].input, kind); updateCounter(jid); return; }
   }
   if (e.key === 'Escape' && chatWindows[jid].priority) { e.preventDefault(); setPriority(jid, false); return; }
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMsg(jid);
+  if (e.key === 'Enter') {
+    if (e.isComposing || e.keyCode === 229) return; // confirming an IME conversion (Japanese, kaomoji…), not sending
+    if (e.metaKey || e.ctrlKey || (enterSends() && !e.shiftKey)) {
+      e.preventDefault();
+      sendMsg(jid);
+    }
+    // otherwise the browser inserts the new line
   }
 }
 
@@ -2215,6 +2240,7 @@ function togglePopover(jid, name) {
   closePopover();
   if (same) return;
   const menu = chat[POPOVERS[name][0]];
+  if (name === 'help') menu.replaceChildren(); // rebuilt each time, so it reflects the Enter-key setting
   if (!menu.childNodes.length) (name === 'kaomoji' ? buildKaomoji : buildFormatHelp)(jid, menu);
   menu.hidden = false;
   chat.win.querySelector(POPOVERS[name][1]).setAttribute('aria-expanded', 'true');
@@ -2266,7 +2292,7 @@ function buildFormatHelp(jid, menu) {
     table.appendChild(row);
   }
   menu.append(table, el('p', 'help-note',
-    'Enter sends, Shift+Enter starts a new line. Select text first to format it. Other chat apps show your message as plain text, so keep it readable. Messages can be up to ' + MAX_MESSAGE.toLocaleString() + ' characters.'));
+    enterHint() + ' Select text first to format it. Other chat apps show your message as plain text, so keep it readable. Messages can be up to ' + MAX_MESSAGE.toLocaleString() + ' characters.'));
 }
 
 function insertKaomoji(jid, face) {
@@ -2555,10 +2581,22 @@ function profilePictureSection() {
   return s;
 }
 
+function typingSection() {
+  const s = section('Typing');
+  const sel = el('select', 'enter-select');
+  sel.setAttribute('aria-label', 'What the Enter key does');
+  sel.append(new Option('Enter sends the message (Shift+Enter: new line)', 'send'), new Option('Enter starts a new line (send with the button)', 'newline'));
+  sel.value = enterSends() ? 'send' : 'newline';
+  sel.onchange = () => setEnterSends(sel.value === 'send');
+  s.append(sel, el('p', 'muted', 'Ctrl/Cmd+Enter always sends. The default is the first on computers and the second on phones and tablets, which have no Shift key.'));
+  return s;
+}
+
 function renderSettings(body, token) {
   document.getElementById('modal-title').textContent = 'Settings';
 
   body.appendChild(nameSection());
+  body.appendChild(typingSection());
   body.appendChild(statusSection());
   body.appendChild(profilePictureSection());
   body.appendChild(historySection());
