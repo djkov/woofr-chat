@@ -761,6 +761,11 @@ const ICON_ALERT    = 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z';
 const ICON_KEY      = 'M12.65 10A5.99 5.99 0 0 0 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6a5.99 5.99 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z';
 const ICON_REPLY    = 'M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z';
 const ICON_DOWNLOAD = 'M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z';
+const ICON_CODE     = 'M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0 4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z';
+const ICON_QUOTE    = 'M6 17h3l2-4V7H5v6h3zm8 0h3l2-4V7h-6v6h3z';
+const ICON_LIST     = 'M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z';
+const ICON_LINK     = 'M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z';
+const ICON_HELP     = 'M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z';
 const ICON_CLOSE    = 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z';
 const ICON_CHAT     = 'M12 3C6.5 3 2 6.6 2 11c0 2.4 1.3 4.6 3.4 6.1L4.6 21l4.2-2.3c1 .2 2.1.3 3.2.3 5.5 0 10-3.6 10-8s-4.5-8-10-8z';
 
@@ -1363,6 +1368,7 @@ async function handleMessage(c, msg) {
     text = bodyEl ? bodyEl.textContent : null;
   }
 
+  if (text !== null && text.length > MAX_RECEIVED) text = text.slice(0, MAX_RECEIVED); // nobody needs more, and it bounds memory and history
   if (attention) onAttention(from, text, opts);
   else if (text !== null) {
     if (!chatWindows[from]) createChatWindow(from);
@@ -1416,9 +1422,17 @@ function createChatWindow(jid) {
     <div class="chat-input-area">
       <div class="attach-tray" hidden></div>
       <div class="kaomoji-menu" role="menu" hidden></div>
+      <div class="format-help" hidden></div>
       <div class="chat-toolbar">
-        <button data-fmt="**" title="Bold"><b>B</b></button>
-        <button data-fmt="_" title="Italic"><i>I</i></button>
+        <button data-fmt="bold" title="Bold (Ctrl/Cmd+B)" aria-label="Bold"><b>B</b></button>
+        <button data-fmt="italic" title="Italic (Ctrl/Cmd+I)" aria-label="Italic"><i>I</i></button>
+        <button data-fmt="strike" title="Strikethrough" aria-label="Strikethrough"><s>S</s></button>
+        <button data-fmt="code" title="Code" aria-label="Code">${svgHtml(ICON_CODE)}</button>
+        <button data-fmt="quote" title="Quote" aria-label="Quote">${svgHtml(ICON_QUOTE)}</button>
+        <button data-fmt="list" title="List" aria-label="List">${svgHtml(ICON_LIST)}</button>
+        <button data-fmt="link" title="Link (Ctrl/Cmd+K)" aria-label="Link">${svgHtml(ICON_LINK)}</button>
+        <button class="help-btn" title="Formatting help" aria-label="Formatting help" aria-haspopup="true" aria-expanded="false">${svgHtml(ICON_HELP)}</button>
+        <span class="toolbar-sep"></span>
         <button class="kaomoji-btn" title="Kaomoji" aria-haspopup="true" aria-expanded="false">(^_^)</button>
         <button class="attach-btn" title="Send a file or photo">${svgHtml(ICON_CLIP)}<span class="lbl"> Attach</span></button>
         <input type="file" class="attach-input" multiple hidden>
@@ -1435,13 +1449,20 @@ function createChatWindow(jid) {
           <button class="btn clear-btn">Clear</button>
         </div>
       </div>
+      <div class="compose-meta">
+        <button class="link-btn hint-link" type="button">Markdown supported · formatting help</button>
+        <span class="char-count" aria-live="polite"></span>
+      </div>
     </div>`;
 
   const log    = win.querySelector('.chat-log');
   const input  = win.querySelector('.chat-input');
   const encBtn = win.querySelector('.enc-btn');
   input.onkeydown = e => chatKey(e, jid);
-  win.querySelectorAll('[data-fmt]').forEach(b => { b.onclick = () => fmtWrap(input, b.dataset.fmt); });
+  win.querySelectorAll('[data-fmt]').forEach(b => { b.onclick = () => { applyFormat(input, b.dataset.fmt); updateCounter(jid); }; });
+  win.querySelector('.help-btn').onclick = e => { e.stopPropagation(); togglePopover(jid, 'help'); };
+  win.querySelector('.hint-link').onclick = e => { e.stopPropagation(); togglePopover(jid, 'help'); };
+  input.oninput = () => updateCounter(jid);
   win.querySelector('.nudge-btn').onclick         = () => sendNudge(jid);
   win.querySelector('.priority-send-btn').onclick = () => sendPriorityMsg(jid);
   win.querySelector('.send-btn').onclick          = () => sendMsg(jid);
@@ -1456,12 +1477,12 @@ function createChatWindow(jid) {
   win.ondrop = e => { if (e.dataTransfer?.files.length) { e.preventDefault(); stageFiles(jid, [...e.dataTransfer.files]); } };
   input.onpaste = e => { const files = [...(e.clipboardData?.files || [])]; if (files.length) { e.preventDefault(); stageFiles(jid, files); } };
   const kaomojiBtn = win.querySelector('.kaomoji-btn');
-  kaomojiBtn.onclick = e => { e.stopPropagation(); toggleKaomoji(jid); };
+  kaomojiBtn.onclick = e => { e.stopPropagation(); togglePopover(jid, 'kaomoji'); };
   encBtn.onclick                                  = () => toggleEncryption(jid);
   wins.appendChild(win);
 
   if (!buddies[jid]) buddies[jid] = { show: 'offline' }; // so the chat is reachable from the list
-  chatWindows[jid] = { tab, win, log, input, encBtn, staged: [], tray: win.querySelector('.attach-tray'), kaomoji: win.querySelector('.kaomoji-menu'), encrypt: true, sendQueue: Promise.resolve(), lastStamp: 0, noOmemoNoted: false };
+  chatWindows[jid] = { tab, win, log, input, encBtn, staged: [], tray: win.querySelector('.attach-tray'), kaomoji: win.querySelector('.kaomoji-menu'), help: win.querySelector('.format-help'), encrypt: true, sendQueue: Promise.resolve(), lastStamp: 0, noOmemoNoted: false };
   const past = history.get(jid);
   if (past?.length) {
     for (const m of past) {
@@ -1566,9 +1587,11 @@ function appendMsg(jid, from, text, type, opts = {}) {
     meta.append(el('span', 'nick', (mine ? ownName() : displayName(from)) + ':'), ' ');
     const main = el('div', 'msg-main');
     const bubble = el('div', 'bubble' + (opts.media ? ' media-bubble' : ''));
+    const cut = opts.media ? null : shortened(text);
     if (opts.media) bubble.appendChild(mediaNode(opts.media, opts));
-    else fillRich(bubble, text);
+    else fillRich(bubble, cut ?? text);
     main.append(meta, bubble);
+    if (cut !== null) main.appendChild(showFullButton(text, mine ? ownName() : displayName(from), ts));
     if (!opts.media && text) {
       const reply = el('button', 'reply-btn');
       reply.appendChild(icon(ICON_REPLY));
@@ -1596,6 +1619,7 @@ function appendMsg(jid, from, text, type, opts = {}) {
 async function sendMsg(jid) {
   const chat = chatWindows[jid];
   if (!chat) return;
+  if (tooLong(chat.input.value)) { updateCounter(jid); chat.input.focus(); return; } // before any attached files go out
   const staged = chat.staged.splice(0);
   if (staged.length) {
     renderTray(jid);
@@ -1609,7 +1633,9 @@ function sendText(jid, priority) {
   const chat = chatWindows[jid];
   const text = chat?.input.value.trim();
   if (!text || !conn) return;
+  if (tooLong(text)) { updateCounter(jid); return; }
   chat.input.value = '';
+  updateCounter(jid);
   chat.input.focus();
 
   const c = conn;
@@ -1650,6 +1676,10 @@ function sendText(jid, priority) {
 }
 
 function chatKey(e, jid) {
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+    const kind = { b: 'bold', i: 'italic', k: 'link' }[e.key.toLowerCase()];
+    if (kind) { e.preventDefault(); applyFormat(chatWindows[jid].input, kind); updateCounter(jid); return; }
+  }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMsg(jid);
@@ -1667,8 +1697,10 @@ function makePriorityRow(fromName, text, opts) {
   header.append(el('span', null, 'Priority message:'), el('span', 'msg-expiry'),
     el('span', 'msg-time', '[' + fmtTime(ts) + '] ' + fromName));
   const body = el('div', 'priority-body');
-  fillRich(body, text);
+  const cut = shortened(text);
+  fillRich(body, cut ?? text);
   row.append(header, body);
+  if (cut !== null) row.appendChild(showFullButton(text, fromName, ts));
   if (!opts.encrypted) row.append(el('span', 'msg-flag plain', 'Not encrypted'));
   else if (opts.untrusted) row.append(el('span', 'msg-flag untrusted', 'From an unverified device'));
   return row;
@@ -1793,13 +1825,6 @@ function shakeWindow() {
   win.addEventListener('animationend', () => win.classList.remove('nudging'), {once: true});
 }
 
-function fmtWrap(ta, ch) {
-  const s   = ta.selectionStart, end = ta.selectionEnd;
-  const sel = ta.value.slice(s, end);
-  ta.setRangeText(ch + sel + ch, s, end, 'end');
-  ta.focus();
-}
-
 // ── Formatting and quote threads (richtext.js) ───────────────────────────
 // Message text is rendered as safe Markdown. The raw text is what's sent and
 // kept, so other clients see readable text. Reply quotes a message with
@@ -1808,6 +1833,83 @@ function fillRich(node, text) {
   const { node: content, blocks } = Rich.render(text);
   node.appendChild(content);
   if (blocks) node.classList.add('has-blocks');
+}
+
+// ── Limits and long messages ─────────────────────────────────────────────
+const MAX_MESSAGE   = 4000;   // what you can send
+const MAX_RECEIVED  = 50000;  // what we'll keep of an incoming message
+const COLLAPSE_CHARS = 700;   // longer messages show a shortened bubble…
+const COLLAPSE_LINES = 12;    // …and so do ones with more lines than this
+
+const tooLong = text => String(text).trim().length > MAX_MESSAGE;
+
+// null if the message fits as it is, else the shortened text for the bubble.
+function shortened(text) {
+  const lines = text.split('\n');
+  if (text.length <= COLLAPSE_CHARS && lines.length <= COLLAPSE_LINES) return null;
+  let cut = lines.slice(0, COLLAPSE_LINES).join('\n');
+  if (cut.length > COLLAPSE_CHARS) cut = cut.slice(0, COLLAPSE_CHARS);
+  return cut.replace(/\s+$/, '') + ' …';
+}
+
+function showFullButton(text, who, ts) {
+  const b = el('button', 'show-full', 'Show full message');
+  b.onclick = () => showModal({ kind: 'message', text, who, ts });
+  return b;
+}
+
+function updateCounter(jid) {
+  const chat = chatWindows[jid];
+  if (!chat) return;
+  const n = chat.input.value.trim().length;
+  const note = chat.win.querySelector('.char-count');
+  const send = chat.win.querySelector('.send-btn');
+  const over = n > MAX_MESSAGE;
+  note.textContent = over ? 'Too long: ' + n.toLocaleString() + ' / ' + MAX_MESSAGE.toLocaleString() + ' characters'
+    : n >= MAX_MESSAGE * 0.8 ? n.toLocaleString() + ' / ' + MAX_MESSAGE.toLocaleString() : '';
+  note.classList.toggle('over', over);
+  send.disabled = over;
+}
+
+// ── The formatting toolbar ────────────────────────────────────────────────
+// Wraps the selection (or inserts a placeholder), and undoes itself if the
+// selection is already wrapped. Quote and list work on whole lines.
+function applyFormat(ta, kind) {
+  const v = ta.value, s = ta.selectionStart, e = ta.selectionEnd, sel = v.slice(s, e);
+  const done = (start, end) => { ta.focus(); ta.setSelectionRange(start, end); ta.dispatchEvent(new Event('input')); };
+
+  const wrap = (open, close, placeholder) => {
+    if (v.slice(s - open.length, s) === open && v.slice(e, e + close.length) === close) { // toggle off
+      ta.setRangeText(sel, s - open.length, e + close.length, 'preserve');
+      return done(s - open.length, e - open.length);
+    }
+    const inner = sel || placeholder;
+    ta.setRangeText(open + inner + close, s, e, 'preserve');
+    done(s + open.length, s + open.length + inner.length);
+  };
+
+  if (kind === 'bold')   return wrap('**', '**', 'bold');
+  if (kind === 'italic') return wrap('_', '_', 'italic');
+  if (kind === 'strike') return wrap('~~', '~~', 'strike');
+  if (kind === 'code') {
+    if (sel.includes('\n')) { ta.setRangeText('```\n' + sel + '\n```', s, e, 'preserve'); return done(s + 4, s + 4 + sel.length); }
+    return wrap('`', '`', 'code');
+  }
+  if (kind === 'link') {
+    const url = /^https?:\/\/\S+$/.test(sel);
+    const text = url ? 'link' : (sel || 'text'), target = url ? sel : 'https://';
+    ta.setRangeText('[' + text + '](' + target + ')', s, e, 'preserve');
+    return url ? done(s + 1, s + 1 + text.length) : done(s + text.length + 3, s + text.length + 3 + target.length);
+  }
+  // line formats
+  const prefix = kind === 'quote' ? '> ' : '- ';
+  const from = v.lastIndexOf('\n', s - 1) + 1;
+  let to = v.indexOf('\n', e); if (to < 0) to = v.length;
+  const lines = v.slice(from, to).split('\n');
+  const all = lines.every(l => l.startsWith(prefix));
+  const out = lines.map(l => all ? l.slice(prefix.length) : prefix + l).join('\n');
+  ta.setRangeText(out, from, to, 'preserve');
+  done(from, from + out.length);
 }
 
 function quoteInto(jid, text) {
@@ -1990,38 +2092,75 @@ const KAOMOJI = [
   ['Other',   ['¯\\_(ツ)_/¯', '(・_・;)', '(O_O)', '(°o°)', '(^_~)', '(-.-)Zzz', '(｀･ω･´)ゞ', '(^_^)/']],
 ];
 
-let kaomojiOpen = null; // jid of the chat whose menu is open
+// One popover (kaomoji or formatting help) can be open at a time.
+let popoverOpen = null; // { jid, name }
+const POPOVERS = { kaomoji: ['kaomoji', '.kaomoji-btn'], help: ['help', '.help-btn'] };
 
-function closeKaomoji() {
-  if (!kaomojiOpen) return;
-  const chat = chatWindows[kaomojiOpen];
-  kaomojiOpen = null;
-  if (chat) { chat.kaomoji.hidden = true; chat.win.querySelector('.kaomoji-btn').setAttribute('aria-expanded', 'false'); }
+function closePopover() {
+  if (!popoverOpen) return;
+  const { jid, name } = popoverOpen;
+  popoverOpen = null;
+  const chat = chatWindows[jid];
+  if (chat) { chat[POPOVERS[name][0]].hidden = true; chat.win.querySelector(POPOVERS[name][1]).setAttribute('aria-expanded', 'false'); }
 }
 
-function toggleKaomoji(jid) {
+function togglePopover(jid, name) {
   const chat = chatWindows[jid];
   if (!chat) return;
-  if (kaomojiOpen === jid) { closeKaomoji(); return; }
-  closeKaomoji();
-  if (!chat.kaomoji.childNodes.length) {
-    for (const [label, faces] of KAOMOJI) {
-      const group = el('div', 'kaomoji-group');
-      group.appendChild(el('div', 'kaomoji-label', label));
-      const grid = el('div', 'kaomoji-grid');
-      faces.forEach(face => {
-        const b = el('button', 'kaomoji-item', face);
-        b.setAttribute('role', 'menuitem');
-        b.onclick = () => insertKaomoji(jid, face);
-        grid.appendChild(b);
-      });
-      group.appendChild(grid);
-      chat.kaomoji.appendChild(group);
-    }
+  const same = popoverOpen && popoverOpen.jid === jid && popoverOpen.name === name;
+  closePopover();
+  if (same) return;
+  const menu = chat[POPOVERS[name][0]];
+  if (!menu.childNodes.length) (name === 'kaomoji' ? buildKaomoji : buildFormatHelp)(jid, menu);
+  menu.hidden = false;
+  chat.win.querySelector(POPOVERS[name][1]).setAttribute('aria-expanded', 'true');
+  popoverOpen = { jid, name };
+}
+
+function buildKaomoji(jid, menu) {
+  for (const [label, faces] of KAOMOJI) {
+    const group = el('div', 'kaomoji-group');
+    group.appendChild(el('div', 'kaomoji-label', label));
+    const grid = el('div', 'kaomoji-grid');
+    faces.forEach(face => {
+      const b = el('button', 'kaomoji-item', face);
+      b.setAttribute('role', 'menuitem');
+      b.onclick = () => insertKaomoji(jid, face);
+      grid.appendChild(b);
+    });
+    group.appendChild(grid);
+    menu.appendChild(group);
   }
-  chat.kaomoji.hidden = false;
-  chat.win.querySelector('.kaomoji-btn').setAttribute('aria-expanded', 'true');
-  kaomojiOpen = jid;
+}
+
+// What each piece of formatting looks like, rendered by the same code that
+// renders messages — so the help can't drift from what really happens.
+const FORMAT_HELP = [
+  ['**bold**', 'Bold', 'Ctrl/Cmd + B'],
+  ['_italic_', 'Italic', 'Ctrl/Cmd + I'],
+  ['~~strike~~', 'Strikethrough', ''],
+  ['`code`', 'Code', ''],
+  ['[text](https://example.org)', 'Link', 'Ctrl/Cmd + K'],
+  ['> quoted\n>> reply to it', 'Quote, nested', 'or press Reply on a message'],
+  ['- one\n- two', 'List', ''],
+  ['```\ncode block\n```', 'Code block', ''],
+];
+
+function buildFormatHelp(jid, menu) {
+  menu.appendChild(el('div', 'kaomoji-label', 'Formatting (Markdown)'));
+  const table = el('div', 'help-table');
+  for (const [syntax, name, key] of FORMAT_HELP) {
+    const row = el('div', 'help-row');
+    const typed = el('code', 'help-syntax', syntax);
+    const shown = el('div', 'help-shown bubble');
+    fillRich(shown, syntax);
+    const label = el('div', 'help-name', name);
+    if (key) label.appendChild(el('span', 'help-key', key));
+    row.append(label, typed, shown);
+    table.appendChild(row);
+  }
+  menu.append(table, el('p', 'help-note',
+    'Enter sends, Shift+Enter starts a new line. Select text first to format it. Other chat apps show your message as plain text, so keep it readable. Messages can be up to ' + MAX_MESSAGE.toLocaleString() + ' characters.'));
 }
 
 function insertKaomoji(jid, face) {
@@ -2031,7 +2170,7 @@ function insertKaomoji(jid, face) {
   const s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? s;
   const pad = s > 0 && !/\s$/.test(ta.value.slice(0, s)) ? ' ' : '';
   ta.setRangeText(pad + face + ' ', s, e, 'end');
-  closeKaomoji();
+  closePopover();
   ta.focus();
 }
 
@@ -2116,6 +2255,7 @@ function renderModal() {
   body.replaceChildren();
   if (modalState.kind === 'settings') renderSettings(body, token);
   else if (modalState.kind === 'about') renderAbout(body);
+  else if (modalState.kind === 'message') renderFullMessage(body);
   else renderContactSecurity(body, modalState.jid, token);
 }
 
@@ -2142,6 +2282,22 @@ function aboutSection() {
     .forEach(([text, href]) => { const li = el('li'); li.appendChild(link(text, href)); links.appendChild(li); });
   s.appendChild(links);
   return s;
+}
+
+function renderFullMessage(body) {
+  const m = modalState;
+  document.getElementById('modal-title').textContent = m.who + ' · ' + fmtTime(m.ts);
+  const view = el('div', 'long-message bubble');
+  fillRich(view, m.text);
+  const actions = el('div', 'device-actions');
+  const copy = el('button', 'btn', 'Copy text');
+  copy.onclick = async () => {
+    try { await navigator.clipboard.writeText(m.text); copy.textContent = 'Copied'; }
+    catch { copy.textContent = 'Couldn\'t copy'; }
+    setTimeout(() => { copy.textContent = 'Copy text'; }, 1500);
+  };
+  actions.append(copy, el('span', 'muted', m.text.length.toLocaleString() + ' characters'));
+  body.append(view, actions);
 }
 
 function renderAbout(body) {
@@ -2793,7 +2949,7 @@ function init() {
   document.getElementById('inp-unlock-pass').onkeydown = e => { if (e.key === 'Enter') doUnlock(); };
   document.getElementById('modal-close').onclick       = closeModal;
   document.getElementById('lightbox').onclick          = closeLightbox;
-  document.addEventListener('click', e => { if (kaomojiOpen && !e.target.closest('.kaomoji-menu')) closeKaomoji(); });
+  document.addEventListener('click', e => { if (popoverOpen && !e.target.closest('.kaomoji-menu, .format-help')) closePopover(); });
   document.getElementById('btn-update').onclick        = () => {
     // Reloading ends the session (everything is wiped), so ask first.
     if (!sessionActive || confirm('Reloading signs you out. Continue?')) location.reload();
@@ -2802,7 +2958,7 @@ function init() {
   document.getElementById('modal').onclick             = e => { if (e.target.id === 'modal') closeModal(); };
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if (kaomojiOpen) closeKaomoji();
+    if (popoverOpen) closePopover();
     else if (!document.getElementById('lightbox').hidden) closeLightbox();
     else if (modalState) closeModal();
   });

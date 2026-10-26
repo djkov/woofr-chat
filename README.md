@@ -144,7 +144,9 @@ python3 -m http.server 8080
 
 ### Formatting, replies and kaomoji
 
-- **Markdown** in messages: `**bold**`, `*italic*` or `_italic_`, `~~strike~~`, `` `code` ``, fenced ```` ``` ```` code blocks, `- ` / `1. ` lists, and `[text](https://link)` (the link also shows its real host, since the label can say anything; only `http(s)` links work). The **B** and **I** buttons add the markers. Messages are rendered as DOM nodes, never HTML, and the raw text is what's sent, so other clients just see readable text.
+- **Markdown** in messages: `**bold**`, `*italic*` or `_italic_`, `~~strike~~`, `` `code` ``, fenced ```` ``` ```` code blocks, `- ` / `1. ` lists, and `[text](https://link)` (the link also shows its real host, since the label can say anything; only `http(s)` links work).
+- **It's discoverable:** the toolbar has bold, italic, strike, code, quote, list and link buttons (they wrap the selection, or insert a placeholder, and undo themselves if pressed again; quote and list work on whole lines). `Ctrl/Cmd+B`, `+I` and `+K` work too. A *Markdown supported · formatting help* line sits under the input, and the **?** button opens a cheat sheet that shows each syntax next to how it renders — drawn by the same code that renders messages, so it can't go out of date.
+- **Limits:** a message can be **4,000 characters**. A counter appears from 3,200; above 4,000 it turns red and Send is disabled, so nothing (including attached files) goes out half-sent. Incoming messages are kept to 50,000 characters. **Long messages** (over 700 characters or 12 lines — yours or anyone's) show a shortened bubble with **Show full message**, which opens a scrollable window with the full formatted text and a **Copy text** button. Messages are rendered as DOM nodes, never HTML, and the raw text is what's sent, so other clients just see readable text.
 - **Quote threads:** lines starting with `>` are quotes and nest: `> hello`, `>> hey`, `>>> sure`. The **Reply** button on a message quotes it into the input with another `>` per line, so replying to a reply builds the thread for you.
 - **Kaomoji instead of emoji:** the `(^_^)` button opens a menu of text faces (happy, love, sad, annoyed, woof, other) inserted at the cursor. The formatter leaves them alone, so `(^_^)`, `(*^‿^*)`, `\(^o^)/` and `¯\_(ツ)_/¯` come out as typed. The interface itself uses drawn icons, not emoji.
 
@@ -330,7 +332,7 @@ app.js
 ├── Avatars          avatar / paintAvatar, onAvatarMetadata (XEP-0084), onVcardUpdate (XEP-0153), setOwnAvatar
 ├── Status           setMyStatus / renderOwnStatus / statusSection; auto-away while locked
 ├── Screen saver     startScreensaver / stopScreensaver / onSaverInput (retro lock screen)
-├── Formatting       fillRich / quoteInto (richtext.js does the parsing)
+├── Formatting       fillRich / applyFormat (toolbar) / quoteInto / shortened + showFullButton / updateCounter (richtext.js parses)
 ├── Kaomoji          toggleKaomoji / insertKaomoji
 ├── Media            stageFiles / renderTray / sendAttachment / mediaNode / mediaLink / discoverUploads / lightbox
 ├── History          loadHistory / recordMessage / sweepExpired / paintExpiry / historySection
