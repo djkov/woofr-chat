@@ -1207,11 +1207,23 @@ function presenceLabel(show) {
 
 function renderBuddyList() {
   const ul     = document.getElementById('buddy-list');
-  const online  = Object.entries(buddies).filter(([,b]) => b.show !== 'offline');
-  const offline = Object.entries(buddies).filter(([,b]) => b.show === 'offline');
+  // Contacts with an unread priority message are pinned in their own section
+  // at the very top, and leave their normal group until it's marked as read.
+  const urgent  = Object.entries(buddies).filter(([,b]) => b.pending?.length)
+    .sort((a, b) => b[1].pending[b[1].pending.length - 1].ts - a[1].pending[a[1].pending.length - 1].ts);
+  const online  = Object.entries(buddies).filter(([,b]) => b.show !== 'offline' && !b.pending?.length);
+  const offline = Object.entries(buddies).filter(([,b]) => b.show === 'offline' && !b.pending?.length);
 
-  document.getElementById('buddy-count').textContent = online.length + ' online';
+  document.getElementById('buddy-count').textContent = Object.values(buddies).filter(b => b.show !== 'offline').length + ' online';
   ul.replaceChildren();
+
+  if (urgent.length) {
+    const total = urgent.reduce((n, [, b]) => n + b.pending.length, 0);
+    const gh = el('li', 'group-header priority-header-row');
+    gh.append(el('span', 'group-caret', '▼ '), 'Priority (' + total + ')');
+    ul.appendChild(gh);
+    urgent.forEach(([jid, b]) => ul.appendChild(makePriorityLi(jid, b)));
+  }
 
   if (requests.size) {
     const gh = el('li', 'group-header');
@@ -1232,6 +1244,26 @@ function renderBuddyList() {
 
   const unread = Object.values(buddies).reduce((n, b) => n + (b.unread || 0), 0);
   document.title = (unread ? '(' + unread + ') ' : '') + 'woofr.chat';
+}
+
+function makePriorityLi(jid, b) {
+  const latest = b.pending[b.pending.length - 1];
+  const li = el('li', 'buddy priority-item' + (jid === activeChat ? ' active' : ''));
+  const wrap = el('div', 'avatar-wrap');
+  wrap.append(avatar(jid), el('div', 'status-dot' + dotClass(b.show)));
+  const info = el('div', 'buddy-info');
+  const line1 = el('div', 'buddy-line1');
+  line1.append(el('span', 'buddy-name', displayName(jid)), el('span', 'buddy-time', fmtListTime(latest.ts)));
+  const line2 = el('div', 'buddy-line2');
+  line2.append(el('span', 'buddy-preview', Rich.plain(latest.text).slice(0, 80)));
+  if (b.pending.length > 1) line2.append(el('span', 'unread-badge', String(b.pending.length)));
+  info.append(line1, line2);
+  // No "mark as read" here on purpose: an urgent message must be opened and
+  // acknowledged in the chat, so it can't be dismissed unread from the list.
+  li.append(wrap, info);
+  li.title = jid;
+  li.onclick = () => { openChat(jid); latest.row.scrollIntoView({ block: 'center' }); };
+  return li;
 }
 
 function makeRequestLi(jid) {
@@ -1769,16 +1801,21 @@ function appendPriorityMsg(jid, fromName, text, opts) {
   const row = appendPriorityRow(jid, fromName, text, opts);
   const ack = el('div', 'priority-ack');
   const btn = el('button', 'priority-ack-btn', 'Mark as read');
-  btn.onclick = () => ackPriority(row, btn);
+  btn.onclick = () => ackPriority(jid, row, btn);
   ack.appendChild(btn);
   row.appendChild(ack);
   chatWindows[jid].log.scrollTop = chatWindows[jid].log.scrollHeight;
+  const b = buddies[jid] || (buddies[jid] = { show: 'offline' });
+  (b.pending ||= []).push({ row, btn, text, ts: Date.now() });
+  renderBuddyList();
 }
 
-function ackPriority(row, btn) {
+function ackPriority(jid, row, btn) {
   btn.textContent = 'Read';
   btn.disabled    = true;
   row.classList.add('read');
+  if (buddies[jid]?.pending) buddies[jid].pending = buddies[jid].pending.filter(p => p.row !== row);
+  renderBuddyList();
   if (!document.querySelector('.priority-ack-btn:not(:disabled)')) stopAlertLoop();
 }
 
