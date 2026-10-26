@@ -767,6 +767,7 @@ const ICON_LIST     = 'M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5
 const ICON_LINK     = 'M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z';
 const ICON_HELP     = 'M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z';
 const ICON_EXPAND   = 'M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z';
+const ICON_TABLE    = 'M10 10.02h5V21h-5zM17 21h3c1.1 0 2-.9 2-2v-9h-5v11zm3-18H5c-1.1 0-2 .9-2 2v3h19V5c0-1.1-.9-2-2-2zM3 19c0 1.1.9 2 2 2h3V10H3v9z';
 const ICON_CLOSE    = 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z';
 const ICON_CHAT     = 'M12 3C6.5 3 2 6.6 2 11c0 2.4 1.3 4.6 3.4 6.1L4.6 21l4.2-2.3c1 .2 2.1.3 3.2.3 5.5 0 10-3.6 10-8s-4.5-8-10-8z';
 
@@ -1434,6 +1435,7 @@ function createChatWindow(jid) {
         <button data-fmt="quote" title="Quote" aria-label="Quote">${svgHtml(ICON_QUOTE)}</button>
         <button data-fmt="list" title="List" aria-label="List">${svgHtml(ICON_LIST)}</button>
         <button data-fmt="link" title="Link (Ctrl/Cmd+K)" aria-label="Link">${svgHtml(ICON_LINK)}</button>
+        <button data-fmt="table" title="Table" aria-label="Table">${svgHtml(ICON_TABLE)}</button>
         <button class="help-btn" title="Formatting help" aria-label="Formatting help" aria-haspopup="true" aria-expanded="false">${svgHtml(ICON_HELP)}</button>
         </span>
         <button class="expand-btn" title="Open a larger editor" aria-label="Open a larger editor">${svgHtml(ICON_EXPAND)}</button>
@@ -1890,12 +1892,22 @@ const COLLAPSE_LINES = 12;    // …and so do ones with more lines than this
 const tooLong = text => String(text).trim().length > MAX_MESSAGE;
 
 // null if the message fits as it is, else the shortened text for the bubble.
+// Cuts on whole lines, and never in the middle of a table (a half table would
+// show as raw text); a single enormous line is cut mid-line.
 function shortened(text) {
   const lines = text.split('\n');
   if (text.length <= COLLAPSE_CHARS && lines.length <= COLLAPSE_LINES) return null;
-  let cut = lines.slice(0, COLLAPSE_LINES).join('\n');
-  if (cut.length > COLLAPSE_CHARS) cut = cut.slice(0, COLLAPSE_CHARS);
-  return cut.replace(/\s+$/, '') + ' …';
+  let n = 0, chars = 0;
+  while (n < lines.length && n < COLLAPSE_LINES && chars + lines[n].length + 1 <= COLLAPSE_CHARS) chars += lines[n++].length + 1;
+  if (n === 0) return lines[0].slice(0, COLLAPSE_CHARS).replace(/\s+$/, '') + ' …';
+  const isRow = i => i >= 0 && i < lines.length && lines[i].includes('|');
+  if (isRow(n - 1) && isRow(n)) {                // the cut would split a table
+    let start = n - 1;
+    while (isRow(start - 1)) start--;
+    if (start > 0) n = start;                     // end the bubble just before it…
+    else { n = 1; while (isRow(n) && n < 40) n++; } // …or, if it's at the very top, show all of it
+  }
+  return lines.slice(0, n).join('\n').replace(/\s+$/, '') + ' …';
 }
 
 function showFullButton(text, who, ts) {
@@ -1951,6 +1963,12 @@ function applyFormat(ta, kind) {
     const text = url ? 'link' : (sel || 'text'), target = url ? sel : 'https://';
     ta.setRangeText('[' + text + '](' + target + ')', s, e, 'preserve');
     return url ? done(s + 1, s + 1 + text.length) : done(s + text.length + 3, s + text.length + 3 + target.length);
+  }
+  if (kind === 'table') {
+    const tpl = '| Column 1 | Column 2 |\n|----------|----------|\n| Cell     | Cell     |';
+    const lead = s > 0 && v[s - 1] !== '\n' ? '\n' : '', trail = e < v.length && v[e] !== '\n' ? '\n' : '';
+    ta.setRangeText(lead + tpl + trail, s, e, 'preserve');
+    return done(s + lead.length + 2, s + lead.length + 10); // "Column 1", ready to overtype
   }
   // line formats
   const prefix = kind === 'quote' ? '> ' : '- ';
@@ -2192,6 +2210,7 @@ const FORMAT_HELP = [
   ['[text](https://example.org)', 'Link', 'Ctrl/Cmd + K'],
   ['> quoted\n>> reply to it', 'Quote, nested', 'or press Reply on a message'],
   ['# Heading', 'Heading', ''],
+  ['| A | B |\n|---|--:|\n| 1 | 2 |', 'Table', 'colons set alignment'],
   ['- one\n- two', 'List', ''],
   ['```\ncode block\n```', 'Code block', ''],
 ];
@@ -2356,7 +2375,7 @@ function renderEditor(body) {
 
   const bar = el('div', 'compose-tools');
   const tools = [['bold', 'Bold (Ctrl/Cmd+B)', '<b>B</b>'], ['italic', 'Italic (Ctrl/Cmd+I)', '<i>I</i>'], ['strike', 'Strikethrough', '<s>S</s>'],
-    ['code', 'Code', svgHtml(ICON_CODE)], ['quote', 'Quote', svgHtml(ICON_QUOTE)], ['list', 'List', svgHtml(ICON_LIST)], ['link', 'Link (Ctrl/Cmd+K)', svgHtml(ICON_LINK)]];
+    ['code', 'Code', svgHtml(ICON_CODE)], ['quote', 'Quote', svgHtml(ICON_QUOTE)], ['list', 'List', svgHtml(ICON_LIST)], ['link', 'Link (Ctrl/Cmd+K)', svgHtml(ICON_LINK)], ['table', 'Table', svgHtml(ICON_TABLE)]];
   const tabs = el('div', 'compose-tabs');
   const write = el('button', 'compose-tab active', 'Write');
   const preview = el('button', 'compose-tab', 'Preview');
