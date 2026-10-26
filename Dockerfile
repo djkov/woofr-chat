@@ -7,7 +7,7 @@ RUN rm /etc/nginx/conf.d/default.conf \
     && rm -rf /usr/share/nginx/html/*
 
 COPY nginx.conf /etc/nginx/conf.d/woofr.conf
-COPY index.html app.js omemo.js history.js media.js styles.css LICENSE /usr/share/nginx/html/
+COPY index.html app.js omemo.js history.js media.js richtext.js styles.css LICENSE /usr/share/nginx/html/
 COPY vendor/strophe.umd.min.js vendor/libsignal.min.js \
      vendor/strophe.js-LICENSE.txt vendor/libsignal-LICENSES.txt /usr/share/nginx/html/vendor/
 
