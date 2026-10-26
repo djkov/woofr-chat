@@ -128,7 +128,7 @@ python3 -m http.server 8080
 - **Retro** — the original Windows 2000 / AIM look: title bar, buddy list, tabbed chat windows, `[12:34] nick: text` lines.
 - **Screen saver** (retro): when the session locks, a DVD-player-style *woofr.chat* logo bounces around a black screen, changing colour off each wall (watch for the corner). Any key or click brings back the unlock prompt; it returns after a minute untouched. *Settings → Theme* has *Preview* and *(None)*, and it holds still for people who've asked for reduced motion.
 - **Light and dark** for both themes. *Automatic* (the default) follows the system setting; *Light* or *Dark* overrides it.
-- Switch on the sign-in screen or in **Settings**. Only the theme and light/dark choice are remembered (`localStorage`, keys `woofr.theme`, `woofr.mode`, `woofr.screensaver` and `woofr.history`); they're applied before first paint.
+- Switch on the sign-in screen or in **Settings**. Only the theme and light/dark choice are remembered (`localStorage`, keys `woofr.theme`, `woofr.mode`, `woofr.screensaver`, `woofr.history` and `woofr.enter`); they're applied before first paint.
 
 ### Names
 
@@ -221,7 +221,7 @@ See `HIPAA.md` for the reasoning.
 ### Chat
 
 - **Tabbed chat windows** — one tab per conversation, closeable
-- **Enter** to send, **Shift+Enter** for newline
+- **Enter** to send, **Shift+Enter** for newline — on computers. Phones and tablets have no Shift key, so there **Enter starts a new line** and the Send button sends. `Ctrl/Cmd+Enter` always sends, and **Settings → Typing** switches the behaviour on any device. Enter is ignored while an input method (Japanese, kaomoji palettes…) is confirming a conversion.
 - Basic text formatting toolbar (Bold, Italic) wraps selected text with `**` / `_` markers
 - Messages show who sent them and when (bubbles in the WeChat theme; timestamp and coloured nick in retro), with a flag on anything that wasn't end-to-end encrypted
 - Messages that fail to send stay in the log marked *Not sent*, with the reason
