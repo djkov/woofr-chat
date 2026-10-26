@@ -1425,6 +1425,8 @@ function createChatWindow(jid) {
       <div class="kaomoji-menu" role="menu" hidden></div>
       <div class="format-help" hidden></div>
       <div class="chat-toolbar">
+        <button class="fmt-toggle" type="button" title="Formatting" aria-label="Formatting" aria-pressed="false">Aa</button>
+        <span class="fmt-group">
         <button data-fmt="bold" title="Bold (Ctrl/Cmd+B)" aria-label="Bold"><b>B</b></button>
         <button data-fmt="italic" title="Italic (Ctrl/Cmd+I)" aria-label="Italic"><i>I</i></button>
         <button data-fmt="strike" title="Strikethrough" aria-label="Strikethrough"><s>S</s></button>
@@ -1433,6 +1435,7 @@ function createChatWindow(jid) {
         <button data-fmt="list" title="List" aria-label="List">${svgHtml(ICON_LIST)}</button>
         <button data-fmt="link" title="Link (Ctrl/Cmd+K)" aria-label="Link">${svgHtml(ICON_LINK)}</button>
         <button class="help-btn" title="Formatting help" aria-label="Formatting help" aria-haspopup="true" aria-expanded="false">${svgHtml(ICON_HELP)}</button>
+        </span>
         <button class="expand-btn" title="Open a larger editor" aria-label="Open a larger editor">${svgHtml(ICON_EXPAND)}</button>
         <span class="toolbar-sep"></span>
         <button class="kaomoji-btn" title="Kaomoji" aria-haspopup="true" aria-expanded="false">(^_^)</button>
@@ -1467,6 +1470,11 @@ function createChatWindow(jid) {
   win.querySelector('.help-btn').onclick = e => { e.stopPropagation(); togglePopover(jid, 'help'); };
   win.querySelector('.hint-link').onclick = e => { e.stopPropagation(); togglePopover(jid, 'help'); };
   win.querySelector('.expand-btn').onclick = () => openEditor(jid);
+  const fmtToggle = win.querySelector('.fmt-toggle');
+  fmtToggle.onclick = () => {
+    const open = win.querySelector('.chat-toolbar').classList.toggle('fmt-open');
+    fmtToggle.setAttribute('aria-pressed', String(open));
+  };
   win.querySelector('.expand-link').onclick = () => openEditor(jid);
   input.oninput = () => updateCounter(jid);
   win.querySelector('.nudge-btn').onclick         = () => sendNudge(jid);
