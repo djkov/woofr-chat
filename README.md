@@ -75,7 +75,7 @@ The nginx config (`nginx.conf`) enforces:
 - `Strict-Transport-Security` — locks browsers to HTTPS for 2 years
 - `Content-Security-Policy` with `script-src 'self'` and `style-src 'self'` (no inline script or CSS, no eval, no CDNs), `connect-src` limited to `https://woofr.chat:5443` (BOSH and file uploads) plus the page's own origin (new-version check), and `img-src`/`media-src` allowing `blob:` for decrypted files
 - `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy` / `-Resource-Policy: same-origin`
-- Only `/messenger/alpha/`, the files it loads (`app.js`, `omemo.js`, `history.js`, `media.js`, `styles.css`, two vendored scripts) and the licence texts are served (`/messenger/alpha` redirects to add the trailing slash); everything else returns 404 — no directory listing, no docs exposed
+- Only `/messenger/alpha/`, the files it loads (`app.js`, `omemo.js`, `history.js`, `media.js`, `richtext.js`, `styles.css`, two vendored scripts) and the licence texts are served (`/messenger/alpha` redirects to add the trailing slash); everything else returns 404 — no directory listing, no docs exposed
 
 See `HIPAA.md` for the full compliance gap analysis and roadmap.
 
@@ -142,9 +142,15 @@ python3 -m http.server 8080
 - **Settings → Profile picture** sets or removes yours. It's square-cropped to 192×192 PNG and published both ways, so every kind of client sees it. The rest of your vCard is kept.
 - Pictures only ever come from the XMPP server — avatars that point at an outside URL are ignored. Each is checked against its SHA-1, must be PNG/JPEG/GIF/WebP and at most 512 KB, and is redrawn on a canvas (dropping EXIF and other metadata) before it's shown. They're held in memory only and wiped on sign-out.
 
+### Formatting, replies and kaomoji
+
+- **Markdown** in messages: `**bold**`, `*italic*` or `_italic_`, `~~strike~~`, `` `code` ``, fenced ```` ``` ```` code blocks, `- ` / `1. ` lists, and `[text](https://link)` (the link also shows its real host, since the label can say anything; only `http(s)` links work). The **B** and **I** buttons add the markers. Messages are rendered as DOM nodes, never HTML, and the raw text is what's sent, so other clients just see readable text.
+- **Quote threads:** lines starting with `>` are quotes and nest: `> hello`, `>> hey`, `>>> sure`. The **Reply** button on a message quotes it into the input with another `>` per line, so replying to a reply builds the thread for you.
+- **Kaomoji instead of emoji:** the `(^_^)` button opens a menu of text faces (happy, love, sad, annoyed, woof, other) inserted at the cursor. The formatter leaves them alone, so `(^_^)`, `(*^‿^*)`, `\(^o^)/` and `¯\_(ツ)_/¯` come out as typed. The interface itself uses drawn icons, not emoji.
+
 ### Photos, audio, video and files
 
-- **Attach** (paperclip in the chat toolbar), or **drop / paste** files onto a chat (those ask first, since they're easy to send by accident). Up to 25 MB, or whatever the server allows.
+- **Attach** (paperclip in the chat toolbar), or **drop / paste** files onto a chat. They wait in a tray above the input (thumbnails, **×** to remove) until **Send**, and whatever you've typed goes with them as a message right after the files. Up to 25 MB each, or whatever the server allows.
 - Works with **Conversations, Dino and Gajim**: files travel the way those clients do it. They're encrypted in the browser (AES-256-GCM), the ciphertext goes to the server's HTTP File Upload service (XEP-0363), and an `aesgcm://…#key` link is sent as the end-to-end encrypted message. The server only ever stores ciphertext; the key is inside the OMEMO message. With encryption turned off for a chat, the file is uploaded as is and a plain link is sent (and flagged *Not encrypted*).
 - **Photos** show inline (click to enlarge) and are **redrawn before sending, which removes location, camera and time metadata**; photos over 2560 px are scaled down. **Audio, video and other files** show a button and load when you click it. Anything restored from history is click-to-load too. Videos and other files are sent untouched, metadata included.
 - **Only files on your own server are ever fetched.** A link pointing anywhere else is shown as "Not loaded" and never requested, so a sender can't learn when or from where you opened a message. Types shown inline come from an allow-list; anything else is offered as a download.
@@ -324,7 +330,9 @@ app.js
 ├── Avatars          avatar / paintAvatar, onAvatarMetadata (XEP-0084), onVcardUpdate (XEP-0153), setOwnAvatar
 ├── Status           setMyStatus / renderOwnStatus / statusSection; auto-away while locked
 ├── Screen saver     startScreensaver / stopScreensaver / onSaverInput (retro lock screen)
-├── Media            sendAttachment / mediaNode / mediaLink / discoverUploads / lightbox
+├── Formatting       fillRich / quoteInto (richtext.js does the parsing)
+├── Kaomoji          toggleKaomoji / insertKaomoji
+├── Media            stageFiles / renderTray / sendAttachment / mediaNode / mediaLink / discoverUploads / lightbox
 ├── History          loadHistory / recordMessage / sweepExpired / paintExpiry / historySection
 ├── State            conn, myJid, buddies{}, chatWindows{}, activeChat, nudgeTimestamps{}
 ├── Auth             doLogin (also opens the OMEMO vault) / onConnectStatus / onConnected
@@ -340,6 +348,7 @@ app.js
 ├── Inactivity       noteActivity / checkIdle / lockSession / doUnlock
 └── Teardown         endSession — the single exit path; wipes all PHI
 
+richtext.js          Markdown subset + quote threads, rendered to DOM nodes (no innerHTML)
 media.js             Upload (XEP-0363), aesgcm:// encrypt/decrypt, type allow-list, photo re-encoding
 history.js           Conversation history: one encrypted IndexedDB record per chat, retention, purge
 

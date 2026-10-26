@@ -85,6 +85,41 @@ body { height: 100vh; height: 100dvh; overflow: hidden; }
 .msg-expiry:empty { display: none; }
 
 /* Files and media */
+/* Formatted messages */
+.bubble.has-blocks { display: block; }
+.bubble code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.92em; padding: 0 3px; border-radius: 3px; }
+.bubble pre { margin: 4px 0; padding: 6px 8px; overflow-x: auto; border-radius: 4px; white-space: pre; }
+.bubble pre code { padding: 0; background: none; }
+.bubble blockquote { margin: 2px 0; padding: 2px 0 2px 8px; border-left: 3px solid; }
+.bubble blockquote blockquote { margin-top: 2px; }
+.bubble ul, .bubble ol { margin: 2px 0; padding-left: 20px; }
+.bubble a { text-decoration: underline; overflow-wrap: anywhere; }
+.bubble del { opacity: 0.7; }
+/* Attachment tray (files waiting to be sent with an optional message) */
+.chat-input-area { position: relative; }
+.attach-tray { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 6px; }
+.tray-item { display: flex; align-items: center; gap: 8px; flex-shrink: 0; max-width: 240px; padding: 4px 6px; border-radius: 4px; }
+.tray-thumb { width: 40px; height: 40px; object-fit: cover; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
+.tray-info { min-width: 0; }
+.tray-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.tray-size { font-size: 11px; opacity: 0.7; }
+.tray-remove { border: none; background: none; cursor: pointer; padding: 2px; font-size: 14px; display: flex; color: inherit; opacity: 0.7; }
+.tray-remove:hover { opacity: 1; }
+/* Kaomoji menu */
+.kaomoji-menu { position: absolute; left: 4px; bottom: 100%; z-index: 20; width: min(380px, calc(100% - 8px)); max-height: 260px; overflow-y: auto; padding: 6px 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); }
+.kaomoji-label { font-size: 11px; opacity: 0.65; margin: 6px 0 3px; }
+.kaomoji-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+.kaomoji-item { border: none; background: none; cursor: pointer; padding: 3px 7px; font-size: 14px; font-family: inherit; color: inherit; border-radius: 4px; white-space: nowrap; }
+.kaomoji-btn { white-space: nowrap; }
+.reply-btn .icon, .tray-remove .icon { width: 1em; height: 1em; }
+.close-tab .icon { width: 0.9em; height: 0.9em; }
+.msg-lock .icon { width: 0.9em; height: 0.9em; vertical-align: -1px; }
+.media-file .icon { vertical-align: -2px; }
+.chat-toolbar .icon { width: 1.15em; height: 1.15em; }
+.reply-btn { border: none; background: none; cursor: pointer; padding: 0 4px; font-size: 13px; opacity: 0; align-self: flex-start; }
+.msg:hover .reply-btn, .reply-btn:focus-visible { opacity: 0.7; }
+.reply-btn:hover { opacity: 1 !important; }
+@media (hover: none) { .reply-btn { opacity: 0.45; } }
 .media { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: 100%; }
 .media-img { display: block; max-width: min(100%, 280px); max-height: 320px; border-radius: 4px; cursor: zoom-in; }
 .media-audio { display: block; width: 240px; max-width: 100%; }
@@ -509,6 +544,11 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
 [data-theme="retro"] .msg-meta,
 [data-theme="retro"] .bubble { display: inline; }
 [data-theme="retro"] .msg-timesep { display: none; }
+[data-theme="retro"] .reply-btn { display: inline; margin-left: 4px; font-size: 11px; color: var(--r-text-4); }
+[data-theme="retro"] .bubble.has-blocks { display: block; margin: 1px 0 3px 12px; }
+[data-theme="retro"] .bubble code, [data-theme="retro"] .bubble pre { background: var(--r-face-soft); border: 1px solid var(--r-line); }
+[data-theme="retro"] .bubble blockquote { border-left-color: var(--r-shadow); color: var(--r-text-3); }
+[data-theme="retro"] .bubble a { color: var(--r-link); }
 [data-theme="retro"] .bubble.media-bubble { display: block; margin: 2px 0 4px 12px; }
 [data-theme="retro"] .media-note { color: var(--r-text-4); font-size: 10px; }
 [data-theme="retro"] .media-error { color: var(--r-red); }
@@ -555,7 +595,14 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
   font-family: "Times New Roman", serif;
 }
 [data-theme="retro"] .chat-toolbar button:hover { border-color: var(--r-shadow); background: var(--r-face); }
-[data-theme="retro"] .smiley-btn { font-size: 13px; }
+[data-theme="retro"] .kaomoji-btn { font-family: inherit; font-size: 11px; }
+[data-theme="retro"] .attach-tray { border-bottom: 1px solid var(--r-line); }
+[data-theme="retro"] .tray-item { background: var(--r-field); border: 1px solid var(--r-shadow); }
+[data-theme="retro"] .tray-thumb.tray-file { background: var(--r-face); border: 1px solid var(--r-shadow); }
+[data-theme="retro"] .tray-name { font-size: 11px; }
+[data-theme="retro"] .kaomoji-menu { background: var(--r-face); border: 2px solid; border-color: var(--r-light) var(--r-dark) var(--r-dark) var(--r-light); }
+[data-theme="retro"] .kaomoji-item:hover { background: var(--r-sel); color: var(--r-sel-text); }
+[data-theme="retro"] .msg-lock { color: var(--r-green); }
 
 [data-theme="retro"] .chat-toolbar .enc-btn,
 [data-theme="retro"] .chat-toolbar .keys-btn {
@@ -1102,6 +1149,18 @@ textarea.chat-input { flex: 1; resize: none; outline: none; font-family: inherit
   border-right: 0;
   border-left-color: var(--bubble-me);
 }
+[data-theme="wechat"] .reply-btn { color: var(--text-2); }
+[data-theme="wechat"] .tray-item { background: var(--surface-2); }
+[data-theme="wechat"] .tray-thumb { border-radius: 4px; }
+[data-theme="wechat"] .tray-thumb.tray-file { background: var(--surface-3); color: var(--text-2); }
+[data-theme="wechat"] .kaomoji-menu { background: var(--surface); border-radius: 8px; border: 1px solid var(--line); }
+[data-theme="wechat"] .kaomoji-item:hover { background: var(--surface-2-hover); }
+[data-theme="wechat"] .kaomoji-btn { font-size: 13px; letter-spacing: 0; }
+[data-theme="wechat"] .bubble code, [data-theme="wechat"] .bubble pre { background: rgba(127, 127, 127, 0.16); }
+[data-theme="wechat"] .bubble blockquote { border-left-color: rgba(127, 127, 127, 0.55); color: var(--text-2); }
+[data-theme="wechat"] .msg-me .bubble blockquote { color: rgba(0, 0, 0, 0.6); border-left-color: rgba(0, 0, 0, 0.3); }
+[data-theme="wechat"] .bubble a { color: var(--link); }
+[data-theme="wechat"] .msg-me .bubble a { color: #0b4f8a; }
 [data-theme="wechat"] .bubble.media-bubble { padding: 4px; }
 [data-theme="wechat"] .media-note { color: var(--text-2); padding: 4px 6px; }
 [data-theme="wechat"] .media-error { color: var(--red); }

@@ -32,6 +32,6 @@ jobs:
           done
           # Check the scripts and stylesheet too: with one missing, the page
           # still serves but the app is dead.
-          for path in / /app.js /omemo.js /history.js /media.js /styles.css /vendor/strophe.umd.min.js /vendor/libsignal.min.js; do
+          for path in / /app.js /omemo.js /history.js /media.js /richtext.js /styles.css /vendor/strophe.umd.min.js /vendor/libsignal.min.js; do
             curl -sf -o /dev/null "$base$path" || { echo "Production health check failed: $path" >&2; exit 1; }
           done

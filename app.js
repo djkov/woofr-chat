@@ -339,7 +339,7 @@ async function loadHistory(c, vault) {
     const last = msgs[msgs.length - 1];
     const b = buddies[jid] || (buddies[jid] = { show: 'offline' });
     b.preview = last.kind === 'media' ? mediaPreview(last.text)
-      : (last.kind === 'priority' ? '[Priority] ' : '') + last.text.split('\n')[0].slice(0, 80);
+      : (last.kind === 'priority' ? '[Priority] ' : '') + Rich.plain(last.text).slice(0, 80);
     b.time = fmtListTime(last.ts);
   }
   renderBuddyList();
@@ -755,6 +755,18 @@ const svgNS = 'http://www.w3.org/2000/svg';
 const ICON_LOCK   = 'M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z';
 const ICON_UNLOCK = 'M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm0 12H6V10h12v10z';
 
+const ICON_CLIP     = 'M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z';
+const ICON_BOLT     = 'M7 2v11h3v9l7-12h-4l4-8z';
+const ICON_ALERT    = 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z';
+const ICON_KEY      = 'M12.65 10A5.99 5.99 0 0 0 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6a5.99 5.99 0 0 0 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z';
+const ICON_REPLY    = 'M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z';
+const ICON_DOWNLOAD = 'M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z';
+const ICON_CLOSE    = 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z';
+const ICON_CHAT     = 'M12 3C6.5 3 2 6.6 2 11c0 2.4 1.3 4.6 3.4 6.1L4.6 21l4.2-2.3c1 .2 2.1.3 3.2.3 5.5 0 10-3.6 10-8s-4.5-8-10-8z';
+
+// Static markup only (the paths above are constants), for the toolbar template.
+const svgHtml = path => '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="' + path + '"/></svg>';
+
 function icon(path) {
   const svg = document.createElementNS(svgNS, 'svg');
   svg.setAttribute('class', 'icon');
@@ -945,7 +957,7 @@ function startOmemo(c) {
   const session = new Omemo.Session(c, myJid, {
     warn: (jid, text) => {
       if (c !== conn) return;
-      if (jid) noteInChat(jid, '⚠ ' + text, 'warning');
+      if (jid) noteInChat(jid, text, 'warning');
       else { omemoNotices.push(text); setStatus(text, 'error'); }
     },
     changed: jid => { if (c === conn) onOmemoChanged(jid); },
@@ -988,7 +1000,7 @@ function checkOmemoSupport(jid) {
     refreshChatEncryption(jid);
     if (!ids.length && chat.encrypt && !chat.noOmemoNoted) {
       chat.noOmemoNoted = true;
-      appendMsg(jid, null, '⚠ ' + displayName(jid) + ' hasn\'t set up OMEMO encryption, so messages to them can\'t be ' +
+      appendMsg(jid, null, displayName(jid) + ' hasn\'t set up OMEMO encryption, so messages to them can\'t be ' +
         'end-to-end encrypted yet. Ask them to use an OMEMO client (e.g. Conversations, Monal, Gajim, Dino), ' +
         'or turn encryption off for this chat.', 'warning');
     }
@@ -1045,7 +1057,7 @@ function noteSkipped(jid, skipped) {
     if (notedSkips.has(key)) continue;
     notedSkips.add(key);
     const whose = s.jid === myJid ? 'your device' : shortName(s.jid) + '\'s device';
-    appendMsg(jid, null, '⚠ Not encrypting for ' + whose + ' ' + s.id + ' (' + s.reason + '). Review it under Encryption details.', 'warning');
+    appendMsg(jid, null, 'Not encrypting for ' + whose + ' ' + s.id + ' (' + s.reason + '). Review it under Encryption details.', 'warning');
   }
 }
 
@@ -1267,7 +1279,7 @@ function makeBuddyLi(jid, b) {
 // the chat isn't on screen.
 function updatePreview(jid, text, incoming) {
   const b = buddies[jid] || (buddies[jid] = { show: 'offline' });
-  b.preview = text.split('\n')[0].slice(0, 80);
+  b.preview = Rich.plain(text).slice(0, 80);
   b.time = fmtListTime(Date.now());
   if (incoming && !chatVisible(jid)) {
     b.unread = (b.unread || 0) + 1;
@@ -1322,7 +1334,7 @@ async function handleMessage(c, msg) {
   const from = bareJid(msg.getAttribute('from'));
   if (!from || from === myJid) return;
   if (type === 'error') {
-    if (chatWindows[from]) appendMsg(from, null, '⚠ A message to ' + shortName(from) + ' couldn\'t be delivered.', 'nudge-error');
+    if (chatWindows[from]) appendMsg(from, null, 'A message to ' + shortName(from) + ' couldn\'t be delivered.', 'nudge-error');
     return;
   }
 
@@ -1337,7 +1349,7 @@ async function handleMessage(c, msg) {
       r = await omemo.decrypt(from, enc);
     } catch (e) {
       if (c !== conn) return;
-      noteInChat(from, '⚠ ' + shortName(from) + ' sent an encrypted message that couldn\'t be read: ' + e.message +
+      noteInChat(from, shortName(from) + ' sent an encrypted message that couldn\'t be read: ' + e.message +
         (e.code === 'identity-changed' ? ' Review it under Encryption details.' : ''), 'nudge-error');
       return;
     }
@@ -1388,7 +1400,8 @@ function createChatWindow(jid) {
   const wins = document.getElementById('chat-windows');
 
   const tab = el('button', 'chat-tab', shortName(jid));
-  const closeBtn = el('span', 'close-tab', '✕');
+  const closeBtn = el('span', 'close-tab');
+  closeBtn.appendChild(icon(ICON_CLOSE));
   closeBtn.onclick = e => closeChat(jid, e);
   tab.appendChild(closeBtn);
   tab.onclick = () => { switchTab(jid); markRead(jid); };
@@ -1401,17 +1414,19 @@ function createChatWindow(jid) {
   win.innerHTML = `
     <div class="chat-log" role="log"></div>
     <div class="chat-input-area">
+      <div class="attach-tray" hidden></div>
+      <div class="kaomoji-menu" role="menu" hidden></div>
       <div class="chat-toolbar">
         <button data-fmt="**" title="Bold"><b>B</b></button>
         <button data-fmt="_" title="Italic"><i>I</i></button>
-        <button class="smiley-btn t-retro" title="Smiley">:)</button>
-        <button class="attach-btn" title="Send a file or photo">&#128206;<span class="lbl"> Attach</span></button>
+        <button class="kaomoji-btn" title="Kaomoji" aria-haspopup="true" aria-expanded="false">(^_^)</button>
+        <button class="attach-btn" title="Send a file or photo">${svgHtml(ICON_CLIP)}<span class="lbl"> Attach</span></button>
         <input type="file" class="attach-input" multiple hidden>
-        <button class="nudge-btn" title="Send Nudge (XEP-0224)">&#128293;<span class="lbl"> Nudge!</span></button>
-        <button class="priority-send-btn" title="Priority Message">&#9888;<span class="lbl"> Priority</span></button>
+        <button class="nudge-btn" title="Send Nudge (XEP-0224)">${svgHtml(ICON_BOLT)}<span class="lbl"> Nudge!</span></button>
+        <button class="priority-send-btn" title="Priority Message">${svgHtml(ICON_ALERT)}<span class="lbl"> Priority</span></button>
         <span class="toolbar-spacer"></span>
         <button class="enc-btn"></button>
-        <button class="keys-btn" title="Encryption details">&#128273; Keys</button>
+        <button class="keys-btn" title="Encryption details">${svgHtml(ICON_KEY)} Keys</button>
       </div>
       <div class="chat-input-row">
         <textarea class="chat-input" spellcheck="false" autocomplete="off"></textarea>
@@ -1434,21 +1449,19 @@ function createChatWindow(jid) {
   win.querySelector('.keys-btn').onclick          = () => openEncryptionDetails(jid);
   const picker = win.querySelector('.attach-input');
   win.querySelector('.attach-btn').onclick = () => picker.click();
-  picker.onchange = () => { [...picker.files].forEach(f => sendAttachment(jid, f)); picker.value = ''; };
-  // Dropped or pasted files are easy to send by accident, so ask first.
-  const askAndSend = files => {
-    if (!files.length) return;
-    const names = files.map(f => f.name || 'pasted image').join(', ');
-    if (confirm('Send ' + (files.length === 1 ? names : files.length + ' files') + ' to ' + displayName(jid) + '?')) files.forEach(f => sendAttachment(jid, f));
-  };
+  // Picked, dropped and pasted files wait in a tray until Send, so a message
+  // can go with them and nothing is sent by accident.
+  picker.onchange = () => { stageFiles(jid, [...picker.files]); picker.value = ''; };
   win.ondragover = e => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); };
-  win.ondrop = e => { if (e.dataTransfer?.files.length) { e.preventDefault(); askAndSend([...e.dataTransfer.files]); } };
-  input.onpaste = e => { const files = [...(e.clipboardData?.files || [])]; if (files.length) { e.preventDefault(); askAndSend(files); } };
+  win.ondrop = e => { if (e.dataTransfer?.files.length) { e.preventDefault(); stageFiles(jid, [...e.dataTransfer.files]); } };
+  input.onpaste = e => { const files = [...(e.clipboardData?.files || [])]; if (files.length) { e.preventDefault(); stageFiles(jid, files); } };
+  const kaomojiBtn = win.querySelector('.kaomoji-btn');
+  kaomojiBtn.onclick = e => { e.stopPropagation(); toggleKaomoji(jid); };
   encBtn.onclick                                  = () => toggleEncryption(jid);
   wins.appendChild(win);
 
   if (!buddies[jid]) buddies[jid] = { show: 'offline' }; // so the chat is reachable from the list
-  chatWindows[jid] = { tab, win, log, input, encBtn, encrypt: true, sendQueue: Promise.resolve(), lastStamp: 0, noOmemoNoted: false };
+  chatWindows[jid] = { tab, win, log, input, encBtn, staged: [], tray: win.querySelector('.attach-tray'), kaomoji: win.querySelector('.kaomoji-menu'), encrypt: true, sendQueue: Promise.resolve(), lastStamp: 0, noOmemoNoted: false };
   const past = history.get(jid);
   if (past?.length) {
     for (const m of past) {
@@ -1549,12 +1562,21 @@ function appendMsg(jid, from, text, type, opts = {}) {
     row.dataset.ts = ts;
     const meta = el('span', 'msg-meta');
     meta.append(el('span', 'msg-time', '[' + fmtTime(ts) + ']'), ' ', el('span', 'msg-expiry'), ' ');
-    if (opts.encrypted) meta.append(el('span', 'msg-lock', '🔒'), ' ');
+    if (opts.encrypted) { const lock = el('span', 'msg-lock'); lock.appendChild(icon(ICON_LOCK)); meta.append(lock, ' '); }
     meta.append(el('span', 'nick', (mine ? ownName() : displayName(from)) + ':'), ' ');
     const main = el('div', 'msg-main');
     const bubble = el('div', 'bubble' + (opts.media ? ' media-bubble' : ''));
-    if (opts.media) bubble.appendChild(mediaNode(opts.media, opts)); else bubble.textContent = text;
+    if (opts.media) bubble.appendChild(mediaNode(opts.media, opts));
+    else fillRich(bubble, text);
     main.append(meta, bubble);
+    if (!opts.media && text) {
+      const reply = el('button', 'reply-btn');
+      reply.appendChild(icon(ICON_REPLY));
+      reply.title = 'Reply (quotes this message)';
+      reply.setAttribute('aria-label', 'Reply');
+      reply.onclick = () => quoteInto(jid, text);
+      main.appendChild(reply);
+    }
     if (!opts.encrypted) main.append(el('span', 'msg-flag plain', 'Not encrypted'));
     else if (opts.untrusted) main.append(el('span', 'msg-flag untrusted', 'From an unverified device'));
     row.append(avatar(mine ? myJid : jid), main);
@@ -1570,7 +1592,17 @@ function appendMsg(jid, from, text, type, opts = {}) {
 // typed, even though encrypting is asynchronous. The message shows at once
 // (dimmed until sent); if it can't be sent it's marked and the text goes back
 // into the input box.
-function sendMsg(jid)         { sendText(jid, false); }
+// Staged files go first, then the message as their caption.
+async function sendMsg(jid) {
+  const chat = chatWindows[jid];
+  if (!chat) return;
+  const staged = chat.staged.splice(0);
+  if (staged.length) {
+    renderTray(jid);
+    for (const s of staged) { URL.revokeObjectURL(s.thumb); mediaUrls.delete(s.thumb); await sendAttachment(jid, s.file); }
+  }
+  sendText(jid, false);
+}
 function sendPriorityMsg(jid) { sendText(jid, true); }
 
 function sendText(jid, priority) {
@@ -1632,9 +1664,11 @@ function makePriorityRow(fromName, text, opts) {
   const row    = el('div', 'msg-priority');
   row.dataset.ts = ts;
   const header = el('div', 'priority-header');
-  header.append(el('span', null, '⚠ Priority Message (!):'), el('span', 'msg-expiry'),
+  header.append(el('span', null, 'Priority message:'), el('span', 'msg-expiry'),
     el('span', 'msg-time', '[' + fmtTime(ts) + '] ' + fromName));
-  row.append(header, el('div', 'priority-body', text));
+  const body = el('div', 'priority-body');
+  fillRich(body, text);
+  row.append(header, body);
   if (!opts.encrypted) row.append(el('span', 'msg-flag plain', 'Not encrypted'));
   else if (opts.untrusted) row.append(el('span', 'msg-flag untrusted', 'From an unverified device'));
   return row;
@@ -1654,7 +1688,7 @@ function appendPriorityMsg(jid, fromName, text, opts) {
   if (!chatWindows[jid]) return;
   const row = appendPriorityRow(jid, fromName, text, opts);
   const ack = el('div', 'priority-ack');
-  const btn = el('button', 'priority-ack-btn', '✓ Mark as Read');
+  const btn = el('button', 'priority-ack-btn', 'Mark as read');
   btn.onclick = () => ackPriority(row, btn);
   ack.appendChild(btn);
   row.appendChild(ack);
@@ -1662,7 +1696,7 @@ function appendPriorityMsg(jid, fromName, text, opts) {
 }
 
 function ackPriority(row, btn) {
-  btn.textContent = '✓ Read';
+  btn.textContent = 'Read';
   btn.disabled    = true;
   row.classList.add('read');
   if (!document.querySelector('.priority-ack-btn:not(:disabled)')) stopAlertLoop();
@@ -1707,7 +1741,7 @@ function sendNudge(jid) {
   const ts = (nudgeTimestamps[jid] || []).filter(t => now_ms - t < NUDGE_WINDOW_MS);
   if (ts.length >= NUDGE_LIMIT) {
     const wait = Math.ceil((NUDGE_WINDOW_MS - (now_ms - ts[0])) / 1000);
-    appendMsg(jid, null, '⚠ Nudge limit reached! Please wait ' + wait + 's before sending another nudge.', 'nudge-error');
+    appendMsg(jid, null, 'Nudge limit reached! Please wait ' + wait + 's before sending another nudge.', 'nudge-error');
     return;
   }
   ts.push(now_ms);
@@ -1764,6 +1798,25 @@ function fmtWrap(ta, ch) {
   const sel = ta.value.slice(s, end);
   ta.setRangeText(ch + sel + ch, s, end, 'end');
   ta.focus();
+}
+
+// ── Formatting and quote threads (richtext.js) ───────────────────────────
+// Message text is rendered as safe Markdown. The raw text is what's sent and
+// kept, so other clients see readable text. Reply quotes a message with
+// another ">" per line, so quotes of quotes nest into a thread.
+function fillRich(node, text) {
+  const { node: content, blocks } = Rich.render(text);
+  node.appendChild(content);
+  if (blocks) node.classList.add('has-blocks');
+}
+
+function quoteInto(jid, text) {
+  const chat = chatWindows[jid];
+  if (!chat) return;
+  const input = chat.input;
+  input.value = (input.value && !input.value.endsWith('\n') ? input.value + '\n' : input.value) + Rich.quote(text);
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
 }
 
 // ── Files and media (media.js) ────────────────────────────────────────────
@@ -1828,7 +1881,8 @@ function mediaNode(link, opts) {
       node.preload = 'metadata';
       node.src = url;
     } else {
-      node = el('a', 'media-file', '⬇ ' + (link.ext ? link.ext.toUpperCase() + ' file' : 'File') + ' · ' + fmtSize(bytes.length));
+      node = el('a', 'media-file');
+      node.append(icon(ICON_DOWNLOAD), ' ' + (link.ext ? link.ext.toUpperCase() + ' file' : 'File') + ' · ' + fmtSize(bytes.length));
       node.href = url;
       node.download = link.name;
     }
@@ -1882,12 +1936,111 @@ function closeLightbox() {
   box.querySelector('img').removeAttribute('src');
 }
 
+const MAX_STAGED = 10;
+
+function stageFiles(jid, files) {
+  const chat = chatWindows[jid];
+  if (!chat || !files.length) return;
+  if (!uploadSvc) { appendMsg(jid, null, 'This server doesn\'t offer file sharing.', 'nudge-error'); return; }
+  const limit = Math.min(uploadSvc.max, Media.MAX_BYTES);
+  for (const file of files) {
+    if (chat.staged.length >= MAX_STAGED) { appendMsg(jid, null, 'At most ' + MAX_STAGED + ' files at a time.', 'nudge-error'); break; }
+    if (file.size > limit) { appendMsg(jid, null, (file.name || 'That file') + ' is too large (the limit is ' + fmtSize(limit) + ').', 'nudge-error'); continue; }
+    let thumb = '';
+    if (/^image\/(png|jpeg|gif|webp)$/.test(file.type)) { thumb = URL.createObjectURL(file); mediaUrls.add(thumb); }
+    chat.staged.push({ file, thumb });
+  }
+  renderTray(jid);
+  chat.input.focus();
+}
+
+function renderTray(jid) {
+  const chat = chatWindows[jid];
+  if (!chat) return;
+  chat.tray.replaceChildren();
+  chat.tray.hidden = !chat.staged.length;
+  chat.input.placeholder = chat.staged.length
+    ? 'Add a message (optional)…'
+    : (encryptionState(jid) === 'off' ? 'Unencrypted message to ' : 'Encrypted message to ') + displayName(jid) + '…';
+  chat.staged.forEach((s, i) => {
+    const item = el('div', 'tray-item');
+    if (s.thumb) { const t = el('img', 'tray-thumb'); t.alt = ''; t.src = s.thumb; item.appendChild(t); }
+    else { const t = el('div', 'tray-thumb tray-file', (Media.extOf(s.file.name) || 'file').toUpperCase().slice(0, 4)); item.appendChild(t); }
+    const info = el('div', 'tray-info');
+    info.append(el('div', 'tray-name', s.file.name || 'Pasted image'), el('div', 'tray-size', fmtSize(s.file.size)));
+    const remove = el('button', 'tray-remove');
+    remove.title = 'Remove';
+    remove.setAttribute('aria-label', 'Remove ' + (s.file.name || 'file'));
+    remove.appendChild(icon(ICON_CLOSE));
+    remove.onclick = () => { URL.revokeObjectURL(s.thumb); mediaUrls.delete(s.thumb); chat.staged.splice(chat.staged.indexOf(s), 1); renderTray(jid); };
+    item.append(info, remove);
+    chat.tray.appendChild(item);
+  });
+}
+
+// ── Kaomoji ───────────────────────────────────────────────────────────────
+// Plain-text faces instead of emoji. Inserted as typed; the formatter leaves
+// them alone (see richtext.js).
+const KAOMOJI = [
+  ['Happy',   ['(^_^)', '(^o^)', '(＾▽＾)', '(≧◡≦)', '(*^‿^*)', 'ヽ(´▽`)/', '\\(^o^)/', '٩(◕‿◕)۶', '(´∀`)', '☆*:.｡.o(≧▽≦)o.｡.:*☆']],
+  ['Love',    ['(｡♡‿♡｡)', '(◕‿◕)♡', '(づ｡◕‿‿◕｡)づ', '(*´▽`*)', '(⁄ ⁄•⁄ω⁄•⁄ ⁄)', '(´,,•ω•,,)♡']],
+  ['Sad',     ['(T_T)', '(;_;)', '(╥_╥)', '(ಥ_ಥ)', '(´；ω；`)', '(つ﹏⊂)', 'orz']],
+  ['Annoyed', ['(-_-)', '(¬_¬)', '(>_<)', '(ー_ー)!!', '(╯°□°)╯︵ ┻━┻', '┬─┬ノ( º _ ºノ)']],
+  ['Woof',    ['ʕ•ᴥ•ʔ', 'U・ᴥ・U', '∪･ω･∪', '(=^･ω･^=)', '(ᵔᴥᵔ)']],
+  ['Other',   ['¯\\_(ツ)_/¯', '(・_・;)', '(O_O)', '(°o°)', '(^_~)', '(-.-)Zzz', '(｀･ω･´)ゞ', '(^_^)/']],
+];
+
+let kaomojiOpen = null; // jid of the chat whose menu is open
+
+function closeKaomoji() {
+  if (!kaomojiOpen) return;
+  const chat = chatWindows[kaomojiOpen];
+  kaomojiOpen = null;
+  if (chat) { chat.kaomoji.hidden = true; chat.win.querySelector('.kaomoji-btn').setAttribute('aria-expanded', 'false'); }
+}
+
+function toggleKaomoji(jid) {
+  const chat = chatWindows[jid];
+  if (!chat) return;
+  if (kaomojiOpen === jid) { closeKaomoji(); return; }
+  closeKaomoji();
+  if (!chat.kaomoji.childNodes.length) {
+    for (const [label, faces] of KAOMOJI) {
+      const group = el('div', 'kaomoji-group');
+      group.appendChild(el('div', 'kaomoji-label', label));
+      const grid = el('div', 'kaomoji-grid');
+      faces.forEach(face => {
+        const b = el('button', 'kaomoji-item', face);
+        b.setAttribute('role', 'menuitem');
+        b.onclick = () => insertKaomoji(jid, face);
+        grid.appendChild(b);
+      });
+      group.appendChild(grid);
+      chat.kaomoji.appendChild(group);
+    }
+  }
+  chat.kaomoji.hidden = false;
+  chat.win.querySelector('.kaomoji-btn').setAttribute('aria-expanded', 'true');
+  kaomojiOpen = jid;
+}
+
+function insertKaomoji(jid, face) {
+  const chat = chatWindows[jid];
+  if (!chat) return;
+  const ta = chat.input;
+  const s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? s;
+  const pad = s > 0 && !/\s$/.test(ta.value.slice(0, s)) ? ' ' : '';
+  ta.setRangeText(pad + face + ' ', s, e, 'end');
+  closeKaomoji();
+  ta.focus();
+}
+
 async function sendAttachment(jid, file) {
   const chat = chatWindows[jid];
   if (!chat || !conn) return;
-  if (!uploadSvc) { appendMsg(jid, null, '⚠ This server doesn\'t offer file sharing.', 'nudge-error'); return; }
+  if (!uploadSvc) { appendMsg(jid, null, 'This server doesn\'t offer file sharing.', 'nudge-error'); return; }
   const limit = Math.min(uploadSvc.max, Media.MAX_BYTES);
-  if (file.size > limit) { appendMsg(jid, null, '⚠ ' + (file.name || 'That file') + ' is too large (the limit is ' + fmtSize(limit) + ').', 'nudge-error'); return; }
+  if (file.size > limit) { appendMsg(jid, null, (file.name || 'That file') + ' is too large (the limit is ' + fmtSize(limit) + ').', 'nudge-error'); return; }
 
   const c = conn, encrypt = chat.encrypt;
   let blob = file, ext = Media.extOf(file.name) || (file.type.split('/')[1] || '').replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase();
@@ -2230,7 +2383,7 @@ function deviceRow(jid, d) {
 
   if (d.pending) {
     box.appendChild(el('div', 'device-warn',
-      '⚠ This device\'s key changed. Messages to and from it are blocked. Only accept the new key if ' +
+      'This device\'s key changed. Messages to and from it are blocked. Only accept the new key if ' +
       shortName(jid) + ' confirms they reinstalled or reset their app — otherwise someone may be impersonating them. New fingerprint:'));
     box.appendChild(el('div', 'fingerprint', d.pending));
     button('Accept new key', 'danger', async () => {
@@ -2291,7 +2444,7 @@ async function forgetThisDevice() {
 // its own files and compares a hash with the copy it started with; if they
 // differ, a banner offers a reload. It never reloads by itself: that would
 // sign the user out mid-conversation.
-const VERSION_FILES    = ['index.html', 'app.js', 'omemo.js', 'history.js', 'media.js', 'styles.css'];
+const VERSION_FILES    = ['index.html', 'app.js', 'omemo.js', 'history.js', 'media.js', 'richtext.js', 'styles.css'];
 const VERSION_CHECK_MS = 5 * 60_000;
 let versionBaseline = null;
 let versionTimer    = null;
@@ -2640,6 +2793,7 @@ function init() {
   document.getElementById('inp-unlock-pass').onkeydown = e => { if (e.key === 'Enter') doUnlock(); };
   document.getElementById('modal-close').onclick       = closeModal;
   document.getElementById('lightbox').onclick          = closeLightbox;
+  document.addEventListener('click', e => { if (kaomojiOpen && !e.target.closest('.kaomoji-menu')) closeKaomoji(); });
   document.getElementById('btn-update').onclick        = () => {
     // Reloading ends the session (everything is wiped), so ask first.
     if (!sessionActive || confirm('Reloading signs you out. Continue?')) location.reload();
@@ -2648,7 +2802,8 @@ function init() {
   document.getElementById('modal').onclick             = e => { if (e.target.id === 'modal') closeModal(); };
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if (!document.getElementById('lightbox').hidden) closeLightbox();
+    if (kaomojiOpen) closeKaomoji();
+    else if (!document.getElementById('lightbox').hidden) closeLightbox();
     else if (modalState) closeModal();
   });
 
