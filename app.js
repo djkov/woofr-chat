@@ -42,14 +42,62 @@ let features = [];      // set in init(), once omemo.js has loaded
 let capsVer  = null;    // Promise<string|null>
 
 // ── Session security ───────────────────────────────────────────────────────
-// Lock hides everything behind a password prompt but keeps the connection up;
-// logout disconnects and wipes the page. Both count from the last time the
-// signed-in user touched the keyboard/mouse.
-const LOCK_AFTER_MS       = 5  * 60_000;
-const LOGOUT_AFTER_MS     = 15 * 60_000;
+// Two separate clocks:
+//  - the idle LOCK hides everything behind a password prompt but keeps the
+//    connection up (so alerts still arrive); it counts from the last time the
+//    signed-in user touched the keyboard or mouse.
+//  - the SESSION LIFETIME (8 to 72 hours) is a hard limit from sign-in. 30
+//    minutes before it ends the user is asked for their password again, which
+//    is checked here and with the server and restarts the clock; otherwise the
+//    session ends and everything is wiped.
+// Neither the password nor anything equivalent is stored: it's used once, to
+// verify, and discarded. If the connection drops, the chats stay on screen
+// and the same password prompt reconnects.
 const IDLE_CHECK_MS       = 10_000;
+const RENEW_PROMPT_MS     = 30 * 60_000;
+const RENEW_REMIND_MS     = 5  * 60_000; // how soon a dismissed renewal prompt comes back
+const SESSION_HOURS_KEY   = 'woofr.session.hours'; // 8–72 — not PHI
+const LOCK_MINUTES_KEY    = 'woofr.lock.minutes';  // 1, 5, 15 or 0 (never)
+const SESSION_MIN_HOURS   = 8;
+const SESSION_MAX_HOURS   = 72;
+const LOCK_CHOICES        = [1, 5, 15, 0];
 const MAX_UNLOCK_ATTEMPTS = 5;
 const PBKDF2_ITERATIONS   = 600_000;
+
+function sessionHours() {
+  try {
+    const v = parseInt(localStorage.getItem(SESSION_HOURS_KEY), 10);
+    if (v >= SESSION_MIN_HOURS && v <= SESSION_MAX_HOURS) return v;
+  } catch { /* default */ }
+  return SESSION_MAX_HOURS;
+}
+
+function setSessionHours(h) {
+  h = Math.min(SESSION_MAX_HOURS, Math.max(SESSION_MIN_HOURS, Math.round(h)));
+  try { localStorage.setItem(SESSION_HOURS_KEY, String(h)); } catch { /* just don't remember it */ }
+  if (sessionActive) checkIdle();
+}
+
+function lockMinutes() {
+  try {
+    const v = parseInt(localStorage.getItem(LOCK_MINUTES_KEY), 10);
+    if (LOCK_CHOICES.includes(v)) return v;
+  } catch { /* default */ }
+  return 5;
+}
+
+function setLockMinutes(m) {
+  try { localStorage.setItem(LOCK_MINUTES_KEY, String(m)); } catch { /* just don't remember it */ }
+}
+
+const lockLabel = () => lockMinutes() ? 'after ' + lockMinutes() + ' minute' + (lockMinutes() === 1 ? '' : 's') + ' idle' : 'never (only the session limit applies)';
+
+let sessionStart   = 0;     // when this session was signed in or last renewed (ms)
+let boshUrl        = '';    // kept so a dropped connection can be re-established
+let connLost       = false; // the connection dropped; chats are still on screen
+let renewDismissedAt = 0;
+let promptAttempts = 0;
+const sessionEnds = () => sessionStart + sessionHours() * 3_600_000;
 
 let lastActivity   = 0;
 let idleTimer      = null;
@@ -520,6 +568,7 @@ function onAvatarMetadata(c, jid, metadata) {
 
 // For contacts the server doesn't push to us (e.g. not on the roster).
 function requestAvatar(c, jid) {
+  if (!c) return;
   if (avatarAsked.has(jid) || avatars[jid]?.src === 'pep') return;
   avatarAsked.add(jid);
   const attrs = { type: 'get' };
@@ -648,7 +697,7 @@ let nameQueue = Promise.resolve();
 // Someone's published name: their PEP nickname, else their vCard. Looked up
 // once per session, a few at a time.
 function requestName(c, jid) {
-  if (!jid || jid === myJid || namesAsked.has(jid)) return;
+  if (!c || !jid || jid === myJid || namesAsked.has(jid)) return;
   namesAsked.add(jid);
   nameQueue = nameQueue.then(async () => {
     if (c !== conn) return;
@@ -808,14 +857,20 @@ function doLogin() {
   // now — the password isn't kept once this function returns.
   omemoVault = Omemo.openVault(bareJid(jid), pass).catch(e => { console.warn('OMEMO key store unavailable', e); return null; });
 
-  const c = new Strophe.Connection(bosh);
+  boshUrl = bosh;
+  const c = newConnection(bosh);
   conn = c;
+  c.connect(jid, pass, status => onConnectStatus(c, status));
+}
+
+function newConnection(bosh) {
+  const c = new Strophe.Connection(bosh);
   // Strophe's SCRAM-SHA-512 implementation is broken in this build;
   // strip everything except PLAIN so auth succeeds.
   Object.keys(c.mechanisms).forEach(k => {
     if (k !== 'PLAIN') delete c.mechanisms[k];
   });
-  c.connect(jid, pass, status => onConnectStatus(c, status));
+  return c;
 }
 
 function doCancel() {
@@ -848,13 +903,81 @@ function onConnectStatus(c, status) {
     setStatus(msg, cls);
     onConnected();
   } else if ([S.DISCONNECTED, S.AUTHFAIL, S.CONNFAIL, S.ERROR].includes(status)) {
-    // Covers failed sign-ins as well as the server or network dropping a live
-    // session: either way it's over, so don't leave anything on screen.
-    if (sessionActive) endSession('Connection lost. Please sign in again.', 'error');
+    // A failed sign-in ends here. A live session that loses its connection
+    // keeps the chats on screen and asks for the password to reconnect.
+    if (sessionActive) connectionLost(c);
     else endSession(msg, cls);
   } else {
     setStatus(msg, cls);
   }
+}
+
+function connectionLost(c) {
+  if (c !== conn || connLost) return;
+  conn = null; // stanzas and callbacks from the old connection are ignored from here
+  connLost = true;
+  if (omemo) omemo.stop();
+  omemo = null; omemoReady = null; omemoError = '';
+  Object.values(buddies).forEach(b => { b.show = 'offline'; b.status = ''; }); // unknown until we're back
+  renderBuddyList();
+  Object.keys(chatWindows).forEach(refreshChatEncryption);
+  setStatus('Connection lost.', 'error');
+  updateSessionBanner();
+  if (!locked) showSessionPrompt('reconnect');
+}
+
+// Signs back in with the password the user just typed, keeping everything on
+// screen. Resolves to { ok } or { ok: false, reason }.
+function reconnectWith(pass) {
+  return new Promise(resolve => {
+    const c = newConnection(boshUrl);
+    conn = c;
+    omemoVault = sessionVault ? Promise.resolve(sessionVault) : Omemo.openVault(myJid, pass).catch(() => null);
+    const S = Strophe.Status;
+    let settled = false;
+    // `network` marks failures that aren't the user's fault, so they don't use up a password attempt.
+    const fail = (reason, network = false) => { if (settled) return; settled = true; if (conn === c) conn = null; setTimeout(() => { try { c.disconnect(); } catch { /* already down */ } }, 0); resolve({ ok: false, reason, network }); };
+    setTimeout(() => fail('The server didn\'t answer.', true), 25_000);
+    c.connect(myJid, pass, status => {
+      if (settled) { onConnectStatus(c, status); return; } // from here on it's an ordinary live connection
+      if (c !== conn) return;
+      if (status === S.CONNECTED) {
+        settled = true;
+        connLost = false;
+        setStatus('Connected!', 'ok');
+        onConnected();
+        updateSessionBanner();
+        resolve({ ok: true });
+      } else if (status === S.AUTHFAIL) fail('The server rejected the password.');
+      else if (status === S.CONNFAIL || status === S.ERROR) fail('Couldn\'t reach the server.', true);
+    });
+  });
+}
+
+// Asks the server whether this password still works, on a throwaway
+// connection that never announces presence (so nothing changes for contacts).
+function verifyOnServer(pass) {
+  return new Promise(resolve => {
+    const c = newConnection(boshUrl);
+    const S = Strophe.Status;
+    let done = false;
+    const finish = r => { if (done) return; done = true; setTimeout(() => { try { c.disconnect(); } catch { /* already down */ } }, 0); resolve(r); };
+    setTimeout(() => finish({ ok: false, network: true, reason: 'The server didn\'t answer.' }), 20_000);
+    c.connect(myJid, pass, status => {
+      if (status === S.CONNECTED) finish({ ok: true });
+      else if (status === S.AUTHFAIL) finish({ ok: false, reason: 'The server rejected the password.' });
+      else if (status === S.CONNFAIL || status === S.ERROR) finish({ ok: false, network: true, reason: 'Couldn\'t reach the server.' });
+    });
+  });
+}
+
+// After a long background spell the connection may be dead without Strophe
+// knowing yet; a ping finds out.
+function pingServer() {
+  const c = conn;
+  if (!c || !sessionActive) return;
+  iqP(c, $iq({ type: 'get', to: myJid.split('@')[1] }).c('ping', { xmlns: 'urn:xmpp:ping' }))
+    .catch(e => { if (c === conn && e && e.message === 'timeout') connectionLost(c); });
 }
 
 function requestNotifPermission() {
@@ -891,6 +1014,7 @@ function onConnected() {
   const c = conn;
   c.pass = null; // only needed during SASL — don't keep it for the whole session
   sessionActive = true;
+  if (!sessionStart) { sessionStart = Date.now(); promptAttempts = 0; }
   myJid = bareJid(c.jid);
   document.getElementById('my-jid-display').textContent = ownName();
   document.getElementById('my-jid-display').title = myJid;
@@ -918,7 +1042,7 @@ function onConnected() {
   );
 
   startIdleTimer();
-  showBuddyList();
+  if (!locked) showBuddyList();
 }
 
 // ── Service discovery / entity capabilities (XEP-0030, XEP-0115) ──────────
@@ -1667,6 +1791,7 @@ function appendMsg(jid, from, text, type, opts = {}) {
 async function sendMsg(jid) {
   const chat = chatWindows[jid];
   if (!chat) return;
+  if (connLost || !conn) { showSessionPrompt('reconnect'); return; } // nothing is sent, and the text stays in the box
   if (tooLong(chat.input.value)) { updateCounter(jid); chat.input.focus(); return; } // before any attached files go out
   const staged = chat.staged.splice(0);
   if (staged.length) {
@@ -2368,6 +2493,8 @@ function showModal(state) {
 }
 
 function closeModal() {
+  if (modalState?.timer) clearInterval(modalState.timer);
+  if (modalState?.kind === 'session' && modalState.reason === 'renew') renewDismissedAt = Date.now();
   modalState = null;
   modalToken++;
   document.querySelector('.modal-window').classList.remove('modal-wide');
@@ -2393,6 +2520,7 @@ function renderModal() {
   else if (modalState.kind === 'about') renderAbout(body);
   else if (modalState.kind === 'message') renderFullMessage(body);
   else if (modalState.kind === 'compose') { renderEditor(body); modalState.built = true; }
+  else if (modalState.kind === 'session') { if (!modalState.built) { renderSessionPrompt(body); modalState.built = true; } }
   else renderContactSecurity(body, modalState.jid, token);
 }
 
@@ -2419,6 +2547,84 @@ function aboutSection() {
     .forEach(([text, href]) => { const li = el('li'); li.appendChild(link(text, href)); links.appendChild(li); });
   s.appendChild(links);
   return s;
+}
+
+// ── Re-entering the password: renewing the session, or reconnecting ───────
+function renewSession() {
+  sessionStart = Date.now();
+  promptAttempts = 0;
+  if (modalState?.kind === 'session') closeModal(); // (closing marks it dismissed, so reset that afterwards)
+  renewDismissedAt = 0;
+  updateSessionBanner();
+  setStatus(connLost ? 'Connection lost.' : 'Connected!', connLost ? 'error' : 'ok');
+}
+
+function showSessionPrompt(reason, note) {
+  if (!sessionActive) return;
+  if (locked) return; // the lock screen takes the password instead
+  showModal({ kind: 'session', reason, note });
+  document.getElementById('modal-close').hidden = false;
+  document.querySelector('.session-pass')?.focus();
+}
+
+function renderSessionPrompt(body) {
+  const m = modalState;
+  const reconnect = m.reason === 'reconnect';
+  document.getElementById('modal-title').textContent = reconnect ? 'Connection lost' : 'Your session is ending';
+
+  const info = el('p');
+  const tick = () => {
+    if (reconnect) info.textContent = 'The connection to the server was lost. Your chats are still here. Enter your password to reconnect.';
+    else info.textContent = 'Your session ends in ' + fmtLeft(minutesLeft()) + '. Enter your password to keep it going for another ' + sessionHours() + ' hours, or sign out.';
+  };
+  tick();
+  m.timer = setInterval(tick, 15_000);
+
+  const row = el('div', 'form-row');
+  const label = el('label', null, 'Password');
+  const input = el('input', 'session-pass');
+  input.type = 'password';
+  input.autocomplete = 'current-password';
+  input.id = 'inp-session-pass';
+  label.htmlFor = input.id;
+  row.append(label, input);
+
+  const error = el('div', 'lock-error', m.note || '');
+  const go = el('button', 'btn primary', reconnect ? 'Reconnect' : 'Renew session');
+  const out = el('button', 'btn', 'Sign out');
+  const later = el('button', 'btn', 'Not now');
+  const actions = el('div', 'device-actions');
+  actions.append(go, ...(reconnect ? [] : [later]), out);
+
+  let busy = false;
+  const submit = async () => {
+    const pass = input.value;
+    input.value = '';
+    if (!pass || busy) return;
+    busy = true; go.disabled = true; error.textContent = 'Checking…';
+    try {
+      if (!await checkUnlockPassword(pass)) return fail('That isn\'t the password you signed in with.');
+      const r = reconnect ? await reconnectWith(pass) : await verifyOnServer(pass);
+      if (!sessionActive) return;
+      if (r.ok) { promptAttempts = 0; if (reconnect) { closeModal(); updateSessionBanner(); renewSession(); } else renewSession(); return; }
+      if (r.network) { error.textContent = r.reason + ' Try again in a moment.'; return; }
+      fail(r.reason);
+    } finally {
+      busy = false; go.disabled = false;
+      if (modalState === m) input.focus();
+    }
+  };
+  const fail = reason => {
+    if (++promptAttempts >= MAX_UNLOCK_ATTEMPTS) { endSession('Signed out after too many failed attempts.', 'error'); return; }
+    error.textContent = reason + ' ' + (MAX_UNLOCK_ATTEMPTS - promptAttempts) + ' attempt' + (MAX_UNLOCK_ATTEMPTS - promptAttempts === 1 ? '' : 's') + ' left.';
+  };
+  go.onclick = submit;
+  input.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); submit(); } };
+  later.onclick = () => closeModal();
+  out.onclick = () => { if (confirm('Sign out now?')) endSession(); };
+
+  body.append(info, row, error, actions,
+    el('p', 'muted', 'The password is used once to check it, and is not kept.'));
 }
 
 // ── The larger editor ─────────────────────────────────────────────────────
@@ -2581,6 +2787,35 @@ function profilePictureSection() {
   return s;
 }
 
+function sessionSection() {
+  const s = section('Session');
+  const hours = el('input');
+  hours.type = 'range'; hours.min = SESSION_MIN_HOURS; hours.max = SESSION_MAX_HOURS; hours.step = 1;
+  hours.value = sessionHours();
+  hours.setAttribute('aria-label', 'Session length in hours');
+  const hoursOut = el('strong', null, sessionHours() + ' hours');
+  hours.oninput = () => { hoursOut.textContent = hours.value + ' hours'; };
+  hours.onchange = () => { setSessionHours(+hours.value); renderModal(); };
+  const row1 = el('div', 'device-actions');
+  row1.append(el('label', null, 'Stay signed in for'), hours, hoursOut);
+
+  const lock = el('select', 'lock-select');
+  lock.setAttribute('aria-label', 'Lock after');
+  LOCK_CHOICES.forEach(m => lock.append(new Option(m ? 'After ' + m + ' minute' + (m === 1 ? '' : 's') + ' idle' : 'Never', String(m))));
+  lock.value = String(lockMinutes());
+  lock.onchange = () => { setLockMinutes(+lock.value); lastActivity = Date.now(); };
+  const row2 = el('div', 'device-actions');
+  row2.append(el('label', null, 'Lock the screen'), lock);
+
+  const ends = new Date(sessionEnds());
+  s.append(row1, row2, el('p', 'muted',
+    'This session ends ' + ends.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }) + ' (about ' + fmtLeft(minutesLeft()) + ' from now). ' +
+    '30 minutes before that you\'re asked for your password; entering it starts a fresh ' + sessionHours() + ' hours. ' +
+    'Locking hides the screen behind your password but keeps you connected, so alerts still arrive. ' +
+    'For shared or unattended computers, choose a shorter session and a shorter lock time.'));
+  return s;
+}
+
 function typingSection() {
   const s = section('Typing');
   const sel = el('select', 'enter-select');
@@ -2596,6 +2831,7 @@ function renderSettings(body, token) {
   document.getElementById('modal-title').textContent = 'Settings';
 
   body.appendChild(nameSection());
+  body.appendChild(sessionSection());
   body.appendChild(typingSection());
   body.appendChild(statusSection());
   body.appendChild(profilePictureSection());
@@ -2628,7 +2864,7 @@ function renderSettings(body, token) {
     preview.disabled = !saverEnabled();
     preview.onclick = previewScreensaver;
     saverRow.append(label, pick, preview);
-    theme.append(saverRow, el('p', 'muted', 'Shown when the session locks after ' + (LOCK_AFTER_MS / 60_000) + ' minutes idle.'));
+    theme.append(saverRow, el('p', 'muted', 'Shown when the screen locks (' + lockLabel() + ').'));
   }
   body.appendChild(theme);
 
@@ -3001,12 +3237,40 @@ function startIdleTimer() {
 // this also runs the moment the page becomes visible again.
 function checkIdle() {
   if (!sessionActive) return;
-  const idle = Date.now() - lastActivity;
-  if (idle >= LOGOUT_AFTER_MS) {
-    endSession('Signed out after ' + (LOGOUT_AFTER_MS / 60_000) + ' minutes of inactivity.', 'error');
-  } else if (idle >= LOCK_AFTER_MS && !locked) {
-    lockSession();
-  }
+  const now  = Date.now();
+  const left = sessionEnds() - now;
+  if (left <= 0) { endSession('Your session expired. Please sign in again.', 'error'); return; }
+
+  const mins = lockMinutes();
+  if (mins && !locked && now - lastActivity >= mins * 60_000) lockSession();
+
+  updateSessionBanner();
+  if (locked) updateLockMessage();
+  else if (left <= RENEW_PROMPT_MS && !(modalState?.kind === 'session') && now - renewDismissedAt >= RENEW_REMIND_MS && !connLost) showSessionPrompt('renew');
+}
+
+const minutesLeft = () => Math.max(0, Math.ceil((sessionEnds() - Date.now()) / 60_000));
+const fmtLeft = m => m >= 120 ? Math.round(m / 60) + ' hours' : m >= 60 ? '1 hour ' + (m - 60) + ' min' : m + ' min';
+const renewDue = () => sessionEnds() - Date.now() <= RENEW_PROMPT_MS;
+
+function updateLockMessage() {
+  const parts = ['Locked' + (lockMinutes() ? ' after ' + lockMinutes() + ' minute' + (lockMinutes() === 1 ? '' : 's') + ' of inactivity' : '') + '. Enter your password to continue.'];
+  if (connLost) parts.push('The connection was lost; unlocking reconnects.');
+  else if (renewDue()) parts.push('Your session ends in ' + fmtLeft(minutesLeft()) + '; unlocking renews it.');
+  document.getElementById('lock-msg').textContent = parts.join(' ');
+}
+
+// The strip under the title bar: connection lost, or session ending soon.
+function updateSessionBanner() {
+  const box = document.getElementById('session-banner');
+  const show = sessionActive && (connLost || renewDue());
+  box.hidden = !show;
+  if (!show) return;
+  document.getElementById('session-banner-text').textContent = connLost
+    ? 'Connection lost. Messages can\'t be sent or received until you reconnect.'
+    : 'Your session ends in ' + fmtLeft(minutesLeft()) + '.';
+  document.getElementById('btn-session-banner').textContent = connLost ? 'Reconnect' : 'Renew';
+  document.getElementById('btn-session-banner').onclick = () => showSessionPrompt(connLost ? 'reconnect' : 'renew');
 }
 
 function lockSession() {
@@ -3018,9 +3282,7 @@ function lockSession() {
   document.getElementById('app-layout').hidden = true;
   document.getElementById('lock-panel').hidden = false;
   document.getElementById('lock-jid').textContent = myJid;
-  document.getElementById('lock-msg').textContent =
-    'Locked after ' + (LOCK_AFTER_MS / 60_000) + ' minutes of inactivity. Enter your password to continue — ' +
-    'you will be signed out automatically ' + ((LOGOUT_AFTER_MS - LOCK_AFTER_MS) / 60_000) + ' minutes after locking.';
+  updateLockMessage();
   document.getElementById('lock-error').textContent = '';
   document.getElementById('inp-unlock-pass').value = '';
   document.getElementById('inp-unlock-pass').focus();
@@ -3046,8 +3308,17 @@ async function doUnlock() {
     noteActivity();
     document.getElementById('lock-panel').hidden = true;
     document.getElementById('app-layout').hidden = false;
-    setStatus('Connected!', 'ok');
+    setStatus(connLost ? 'Connection lost.' : 'Connected!', connLost ? 'error' : 'ok');
     if (activeChat) markRead(activeChat);
+    // The password is in hand: use it to put right whatever needed it.
+    if (connLost) {
+      const r = await reconnectWith(pass);
+      if (!r.ok) { updateSessionBanner(); showSessionPrompt('reconnect', r.reason); }
+    } else if (renewDue()) {
+      const r = await verifyOnServer(pass);
+      if (r.ok) renewSession();
+      else showSessionPrompt('renew', r.reason);
+    }
   } else if (++unlockAttempts >= MAX_UNLOCK_ATTEMPTS) {
     endSession('Signed out after too many failed unlock attempts.', 'error');
   } else {
@@ -3091,6 +3362,8 @@ function endSession(reason = 'Not connected.', type = '') {
   conn = null; // from here on, callbacks and stanzas from `c` are ignored
 
   sessionActive = false;
+  connLost = false; sessionStart = 0; boshUrl = ''; renewDismissedAt = 0; promptAttempts = 0;
+  document.getElementById('session-banner').hidden = true;
   locked = false;
   unlockVerifier = null;
   unlockAttempts = 0;
@@ -3190,6 +3463,7 @@ function init() {
   document.getElementById('modal-close').onclick       = closeModal;
   document.getElementById('lightbox').onclick          = closeLightbox;
   document.addEventListener('click', e => { if (popoverOpen && !e.target.closest('.kaomoji-menu, .format-help')) closePopover(); });
+  document.getElementById('btn-session-banner').onclick = () => showSessionPrompt('renew');
   document.getElementById('btn-update').onclick        = () => {
     // Reloading ends the session (everything is wiped), so ask first.
     if (!sessionActive || confirm('Reloading signs you out. Continue?')) location.reload();
@@ -3210,6 +3484,7 @@ function init() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     checkIdle();
+    pingServer();
     checkVersion();
     if (activeChat && chatVisible(activeChat)) markRead(activeChat);
   });
