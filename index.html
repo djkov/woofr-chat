@@ -14,6 +14,7 @@
 <script src="vendor/libsignal.min.js" defer></script>
 <script src="omemo.js" defer></script>
 <script src="history.js" defer></script>
+<script src="media.js" defer></script>
 <!-- Not deferred: it applies the saved theme before first paint, then waits
      for DOMContentLoaded (which follows the deferred scripts) for the rest. -->
 <script src="app.js"></script>
@@ -224,6 +225,9 @@
   </div>
 
 </div><!-- /window -->
+
+<!-- PHOTO VIEWER: click or Esc to close -->
+<div id="lightbox" hidden><img alt=""></div>
 
 <!-- SCREEN SAVER (retro theme): shown over the lock screen, or as a preview
      from Settings. It only ever draws the logo. -->
