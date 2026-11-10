@@ -57,7 +57,7 @@ docker run -d \
 
 **TLS is required.** Point your reverse proxy (Traefik, nginx, Caddy, cloud LB) at host port 8090 (container listens on 8080 internally) and terminate HTTPS there. The container will not serve traffic directly on a public port.
 
-On the woofr.chat VPS, `docker compose up` (see `docker-compose.yml`) joins the container to **Traefik**'s shared `proxy` network. Its labels route `woofr.chat` to port 8080, and Traefik terminates TLS (configured in the `djkov/infra` repo). The app lives under `/messenger/<name>`, e.g. `/messenger/alpha`, and `/` returns 404 by design. Until the Traefik cutover, Nginx Proxy Manager also reaches the container over `npm_network`. The staging override sets `traefik.enable=false`, so a smoke-test stack never gets production traffic.
+On the woofr.chat VPS, `docker compose up` (see `docker-compose.yml`) joins the container to **Traefik**'s shared `proxy` network. Its labels route `woofr.chat/messenger/*` to port 8080, and Traefik terminates TLS (configured in the `djkov/infra` repo). The app lives under `/messenger/<name>`, e.g. `/messenger/alpha`; the rest of woofr.chat, including `/`, is the landing page from [`djkov/woofr-landing`](https://github.com/djkov/woofr-landing). Deploy this rule before the landing page's first deploy: its rule is plain ``Host(`woofr.chat`)``, and Traefik prefers the longer rule only once this one has `PathPrefix`. Until the Traefik cutover, Nginx Proxy Manager also reaches the container over `npm_network`. The staging override sets `traefik.enable=false`, so a smoke-test stack never gets production traffic.
 
 Example Caddy config:
 
