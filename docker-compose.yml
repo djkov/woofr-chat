@@ -17,12 +17,15 @@ services:
       - default
       - npm_network
       - proxy
-    # Traefik (djkov/infra) routes woofr.chat here. The staging override turns
-    # this off so a smoke-test stack never receives production traffic.
+    # Traefik (djkov/infra) routes woofr.chat/messenger/* here; the rest of
+    # woofr.chat is the landing page (djkov/woofr-landing, rule Host only).
+    # Traefik ranks routers by rule length, so this longer rule wins for
+    # /messenger. The staging override turns this off so a smoke-test stack
+    # never receives production traffic.
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.woofr.rule=Host(`woofr.chat`)
+      - traefik.http.routers.woofr.rule=Host(`woofr.chat`) && PathPrefix(`/messenger`)
       - traefik.http.routers.woofr.entrypoints=websecure
       - traefik.http.routers.woofr.tls.certresolver=letsencrypt
       - traefik.http.services.woofr.loadbalancer.server.port=8080
